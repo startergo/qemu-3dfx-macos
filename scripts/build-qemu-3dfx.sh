@@ -468,14 +468,15 @@ build_virglrenderer() {
     # Use MESON_PYTHON if set by the CI environment, otherwise use default python3
     if [ -n "$MESON_PYTHON" ]; then
         log_info "Using Python from environment: $MESON_PYTHON"
-        meson setup "$VIRGL_BUILD_DIR" \
+        # Set the Python interpreter using environment variable
+        export MESON_PYTHON="$MESON_PYTHON"
+        "$MESON_PYTHON" -m mesonbuild.mesonmain setup "$VIRGL_BUILD_DIR" \
             --prefix="$VIRGL_INSTALL_DIR" \
             --buildtype=release \
             -Dtests=false \
             -Dplatforms= \
             -Dminigbm_allocation=false \
-            -Dvenus=false \
-            --python="$MESON_PYTHON"
+            -Dvenus=false
     else
         meson setup "$VIRGL_BUILD_DIR" \
             --prefix="$VIRGL_INSTALL_DIR" \
