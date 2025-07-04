@@ -497,7 +497,8 @@ build_qemu() {
         --disable-gtk \
         --disable-dbus-display \
         --disable-curses \
-        --enable-vnc
+        --enable-vnc \
+        --enable-hvf
     
     # Build with ninja (QEMU 9.2.2 uses meson/ninja build system)
     ninja

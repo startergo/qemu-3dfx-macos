@@ -81,12 +81,8 @@ jobs:
         # Set commit identity for the sign_commit script
         export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
         
-        # Run the build with architecture-specific settings
-        if [ "${{ matrix.arch }}" = "arm64" ]; then
-          ./scripts/build-qemu-3dfx.sh --target-arch=aarch64 --enable-hvf
-        else
-          ./scripts/build-qemu-3dfx.sh --target-arch=x86_64 --enable-hvf
-        fi
+        # Run the build (builds all targets: i386, x86_64, aarch64)
+        ./scripts/build-qemu-3dfx.sh build
         
     - name: Verify build
       run: |
