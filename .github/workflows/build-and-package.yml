@@ -76,14 +76,19 @@ jobs:
         # OpenGL development headers for Mesa GL support
         brew install mesa mesa-glu
         
+        # X11 development libraries for Mesa GL context support
+        brew install libx11 libxext libxfixes libxrandr libxinerama libxi libxcursor
+        brew install xorgproto  # Provides X11 extension headers
+        
         # SDL and Gaming Dependencies (essential for DOSBox-style gaming)
         brew install sdl2 sdl2_image sdl2_net sdl2_sound
         brew install sdl12-compat mt32emu
         
-    - name: Setup OpenGL headers for Mesa GL support
+    - name: Setup OpenGL and X11 headers for Mesa GL support
       run: |
-        # Create GL directory structure for Mesa headers
+        # Create GL and X11 directory structure for Mesa headers
         sudo mkdir -p /usr/local/include/GL
+        sudo mkdir -p /usr/local/include/X11/extensions
         
         # Check available OpenGL headers and create symlinks
         if [ -d "/opt/homebrew/include/GL" ]; then
@@ -92,6 +97,12 @@ jobs:
         elif [ -d "/System/Library/Frameworks/OpenGL.framework/Headers" ]; then
           echo "Using system OpenGL framework headers"
           sudo ln -sf /System/Library/Frameworks/OpenGL.framework/Headers/* /usr/local/include/GL/
+        fi
+        
+        # Setup X11 extension headers from Homebrew
+        if [ -d "/opt/homebrew/include/X11" ]; then
+          echo "Setting up X11 headers from Homebrew"
+          sudo cp -rf /opt/homebrew/include/X11/* /usr/local/include/X11/ 2>/dev/null || true
         fi
         
         # Check if we have the required header, if not try to find it
@@ -120,9 +131,10 @@ jobs:
           fi
         fi
         
-        # Verify the header is now available
-        ls -la /usr/local/include/GL/
-        echo "GL headers setup complete"
+        # Verify the headers are now available
+        ls -la /usr/local/include/GL/ || true
+        ls -la /usr/local/include/X11/extensions/ || true
+        echo "Headers setup complete"
         
     - name: Build QEMU 3dfx
       run: |
