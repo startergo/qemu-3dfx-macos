@@ -49,7 +49,7 @@ jobs:
     - name: Test full build process (configure only)
       if: github.event.inputs.full_build_test == 'true' || github.event_name == 'release'
       run: |
-        chmod +x build-qemu-3dfx.sh
+        chmod +x scripts/build-qemu-3dfx.sh
         
         # Create a modified version that stops before actual compilation
         cat > test-full-build.sh << 'EOF'
@@ -57,7 +57,7 @@ jobs:
         set -e
         
         # Source the main script
-        source ./build-qemu-3dfx.sh
+        source ./scripts/build-qemu-3dfx.sh
         
         # Override ninja to just echo what it would do
         ninja() {
@@ -174,11 +174,11 @@ jobs:
       
     - name: Test on ${{ matrix.os }}
       run: |
-        chmod +x test-ci.sh build-qemu-3dfx.sh
+        chmod +x test-ci.sh scripts/build-qemu-3dfx.sh
         
         # Run basic tests
         ./test-ci.sh environment
         ./test-ci.sh dependencies
-        ./build-qemu-3dfx.sh check-env
+        ./scripts/build-qemu-3dfx.sh check-env
         
         echo "✅ Basic compatibility test passed on ${{ matrix.os }}"

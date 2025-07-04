@@ -40,8 +40,8 @@ jobs:
         
     - name: Test environment check
       run: |
-        chmod +x build-qemu-3dfx.sh
-        ./build-qemu-3dfx.sh check-env
+        chmod +x scripts/build-qemu-3dfx.sh
+        ./scripts/build-qemu-3dfx.sh check-env
         
   test-dependencies:
     name: Test Dependency Installation
@@ -59,10 +59,10 @@ jobs:
         
     - name: Test dependency installation
       run: |
-        chmod +x build-qemu-3dfx.sh
+        chmod +x scripts/build-qemu-3dfx.sh
         
         # Test that dependencies can be installed
-        ./build-qemu-3dfx.sh check-env
+        ./scripts/build-qemu-3dfx.sh check-env
         
         # Verify key packages are installed
         brew list libepoxy
@@ -91,7 +91,7 @@ jobs:
         
     - name: Test QEMU source download
       run: |
-        chmod +x build-qemu-3dfx.sh
+        chmod +x scripts/build-qemu-3dfx.sh
         
         # Create a test script that only downloads sources
         cat > test-download.sh << 'EOF'
@@ -99,7 +99,7 @@ jobs:
         set -e
         
         # Source the main script functions
-        source ./build-qemu-3dfx.sh
+        source ./scripts/build-qemu-3dfx.sh
         
         # Override main_build to only test downloads
         test_downloads() {
@@ -143,7 +143,7 @@ jobs:
         
     - name: Test patch application
       run: |
-        chmod +x build-qemu-3dfx.sh
+        chmod +x scripts/build-qemu-3dfx.sh
         
         # Create a test script for patch application
         cat > test-patches.sh << 'EOF'
@@ -151,7 +151,7 @@ jobs:
         set -e
         
         # Source the main script functions
-        source ./build-qemu-3dfx.sh
+        source ./scripts/build-qemu-3dfx.sh
         
         test_patches() {
             log_info "Testing patch application..."
@@ -208,7 +208,7 @@ jobs:
         
     - name: Test configuration only
       run: |
-        chmod +x build-qemu-3dfx.sh
+        chmod +x scripts/build-qemu-3dfx.sh
         
         # Create test script for configuration
         cat > test-config.sh << 'EOF'
@@ -216,7 +216,7 @@ jobs:
         set -e
         
         # Source the main script functions
-        source ./build-qemu-3dfx.sh
+        source ./scripts/build-qemu-3dfx.sh
         
         test_configuration() {
             log_info "Testing build configuration..."
@@ -287,8 +287,8 @@ jobs:
         
     - name: Test environment on ${{ matrix.os }}
       run: |
-        chmod +x build-qemu-3dfx.sh
-        ./build-qemu-3dfx.sh check-env
+        chmod +x scripts/build-qemu-3dfx.sh
+        ./scripts/build-qemu-3dfx.sh check-env
         
     - name: Test dependency installation
       run: |

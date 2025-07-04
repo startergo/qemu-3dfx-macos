@@ -20,16 +20,16 @@ jobs:
         
     - name: Check script syntax
       run: |
-        chmod +x build-qemu-3dfx.sh
-        bash -n build-qemu-3dfx.sh
+        chmod +x scripts/build-qemu-3dfx.sh
+        bash -n scripts/build-qemu-3dfx.sh
         
     - name: Test environment check
       run: |
-        ./build-qemu-3dfx.sh check-env
+        ./scripts/build-qemu-3dfx.sh check-env
         
     - name: Test help command
       run: |
-        ./build-qemu-3dfx.sh help
+        ./scripts/build-qemu-3dfx.sh help
         
     - name: Install minimal dependencies
       run: |
@@ -38,4 +38,4 @@ jobs:
     - name: Test package detection
       run: |
         # Test that the script can detect installed packages
-        ./build-qemu-3dfx.sh check-env
+        ./scripts/build-qemu-3dfx.sh check-env

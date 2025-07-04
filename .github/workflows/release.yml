@@ -69,7 +69,7 @@ jobs:
           path: |
             /opt/homebrew/Cellar
             /opt/homebrew/Caskroom
-          key: ${{ runner.os }}-homebrew-${{ hashFiles('build-qemu-3dfx.sh') }}
+          key: ${{ runner.os }}-homebrew-${{ hashFiles('scripts/build-qemu-3dfx.sh') }}
           restore-keys: |
             ${{ runner.os }}-homebrew-
 
@@ -79,19 +79,19 @@ jobs:
           path: |
             build/qemu-*.tar.xz
             build/virglrenderer
-          key: ${{ runner.os }}-build-sources-${{ hashFiles('build-qemu-3dfx.sh') }}
+          key: ${{ runner.os }}-build-sources-${{ hashFiles('scripts/build-qemu-3dfx.sh') }}
           restore-keys: |
             ${{ runner.os }}-build-sources-
 
       - name: Make scripts executable
         run: |
-          chmod +x build-qemu-3dfx.sh
+          chmod +x scripts/build-qemu-3dfx.sh
           chmod +x test-ci.sh
 
       - name: Build QEMU with 3dfx/Virgl3D
         run: |
           echo "Starting full QEMU build..."
-          ./build-qemu-3dfx.sh build
+          ./scripts/build-qemu-3dfx.sh build
 
       - name: Run comprehensive tests
         run: |
