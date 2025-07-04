@@ -70,6 +70,9 @@ jobs:
         brew install git wget cmake ninja meson pkg-config
         brew install glib pixman libepoxy gettext libffi python@3.12
         
+        # Install Python modules required for virglrenderer build
+        python3 -m pip install --break-system-packages PyYAML
+        
         # SDL and Gaming Dependencies (essential for DOSBox-style gaming)
         brew install sdl2 sdl2_image sdl2_net sdl2_sound
         brew install sdl12-compat mt32emu
