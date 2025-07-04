@@ -2,7 +2,7 @@ name: PR Quick Test
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ master ]
 
 jobs:
   quick-test:
