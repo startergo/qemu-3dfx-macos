@@ -79,6 +79,7 @@ jobs:
         # X11 development libraries for Mesa GL context support
         brew install libx11 libxext libxfixes libxrandr libxinerama libxi libxcursor
         brew install xorgproto  # Provides X11 extension headers
+        brew install libxxf86vm  # Provides xf86vmode.h extension header
         
         # SDL and Gaming Dependencies (essential for DOSBox-style gaming)
         brew install sdl2 sdl2_image sdl2_net sdl2_sound
@@ -103,6 +104,12 @@ jobs:
         if [ -d "/opt/homebrew/include/X11" ]; then
           echo "Setting up X11 headers from Homebrew"
           sudo cp -rf /opt/homebrew/include/X11/* /usr/local/include/X11/ 2>/dev/null || true
+        fi
+        
+        # Ensure xf86vmode.h is available (needed for Mesa GL context on Linux compatibility)
+        if [ ! -f "/usr/local/include/X11/extensions/xf86vmode.h" ] && [ -f "/opt/homebrew/include/X11/extensions/xf86vmode.h" ]; then
+          echo "Copying xf86vmode.h from Homebrew libxxf86vm"
+          sudo cp /opt/homebrew/include/X11/extensions/xf86vmode.h /usr/local/include/X11/extensions/
         fi
         
         # Check if we have the required header, if not try to find it
@@ -132,8 +139,12 @@ jobs:
         fi
         
         # Verify the headers are now available
+        echo "Checking OpenGL headers:"
         ls -la /usr/local/include/GL/ || true
+        echo "Checking X11 extension headers:"
         ls -la /usr/local/include/X11/extensions/ || true
+        echo "Checking specifically for xf86vmode.h:"
+        test -f /usr/local/include/X11/extensions/xf86vmode.h && echo "✓ xf86vmode.h found" || echo "✗ xf86vmode.h missing"
         echo "Headers setup complete"
         
     - name: Build QEMU 3dfx
