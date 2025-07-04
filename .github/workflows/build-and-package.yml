@@ -81,6 +81,9 @@ jobs:
         brew install xorgproto  # Provides X11 extension headers
         brew install libxxf86vm  # Provides xf86vmode.h extension header
         
+        # Install XQuartz for X11 library compatibility (like local development environment)
+        brew install --cask xquartz
+        
         # SDL and Gaming Dependencies (essential for DOSBox-style gaming)
         brew install sdl2 sdl2_image sdl2_net sdl2_sound
         brew install sdl12-compat mt32emu
@@ -145,6 +148,10 @@ jobs:
         ls -la /usr/local/include/X11/extensions/ || true
         echo "Checking specifically for xf86vmode.h:"
         test -f /usr/local/include/X11/extensions/xf86vmode.h && echo "✓ xf86vmode.h found" || echo "✗ xf86vmode.h missing"
+        echo "Checking XQuartz X11 library installation:"
+        ls -la /opt/X11/lib/ || echo "XQuartz X11 lib directory not found"
+        echo "Verifying Homebrew X11 library files exist:"
+        ls -la /opt/homebrew/lib/libX11.* || true
         echo "Headers setup complete"
         
     - name: Build QEMU 3dfx
@@ -153,6 +160,12 @@ jobs:
         
         # Set commit identity for the sign_commit script
         export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
+        
+        # Set up build environment for Homebrew paths
+        export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+        export CFLAGS="-I/opt/homebrew/include -I/usr/local/include"
+        export LDFLAGS="-L/opt/homebrew/lib -L/opt/X11/lib"
+        export CPPFLAGS="-I/opt/homebrew/include -I/usr/local/include"
         
         # Run the build (builds all targets: i386, x86_64, aarch64)
         ./scripts/build-qemu-3dfx.sh build

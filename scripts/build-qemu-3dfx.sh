@@ -488,6 +488,12 @@ build_qemu() {
         sed -i.bak "s/error('epoxy\/egl.h not found')/warning('epoxy\/egl.h not found - EGL disabled')/" ../meson.build
     fi
     
+    # Set up environment variables for Homebrew paths
+    export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+    export CFLAGS="-I/opt/homebrew/include -I/usr/local/include ${CFLAGS:-}"
+    export LDFLAGS="-L/opt/homebrew/lib -L/opt/X11/lib ${LDFLAGS:-}"
+    export CPPFLAGS="-I/opt/homebrew/include -I/usr/local/include ${CPPFLAGS:-}"
+    
     ../configure \
         --target-list=i386-softmmu,x86_64-softmmu,aarch64-softmmu \
         --enable-sdl \
