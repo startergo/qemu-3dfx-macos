@@ -530,8 +530,7 @@ build_qemu() {
         --enable-hvf \
         --disable-tcg-interpreter \
         --disable-guest-agent \
-        --disable-docs \
-        --disable-qtest
+        --disable-docs
     
     # Build with ninja (QEMU 9.2.2 uses meson/ninja build system)
     # Limit parallel jobs to reduce memory usage on CI

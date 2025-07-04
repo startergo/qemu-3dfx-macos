@@ -30,15 +30,17 @@ env:
 jobs:
   build:
     name: Build QEMU 3dfx (${{ matrix.arch }})
-    runs-on: macos-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120  # 2 hour timeout to prevent hanging
     strategy:
       matrix:
         arch: [arm64, x86_64]
         include:
           - arch: arm64
+            runner: macos-latest  # ARM64 (Apple Silicon)
             runner_arch: arm64
           - arch: x86_64
+            runner: macos-13      # Intel x86_64
             runner_arch: x86_64
     
     steps:
@@ -340,11 +342,16 @@ jobs:
 
   test-installation:
     name: Test Installation (${{ matrix.arch }})
-    runs-on: macos-latest
+    runs-on: ${{ matrix.runner }}
     needs: build
     strategy:
       matrix:
         arch: [arm64, x86_64]
+        include:
+          - arch: arm64
+            runner: macos-latest  # ARM64 (Apple Silicon)
+          - arch: x86_64
+            runner: macos-13      # Intel x86_64
     
     steps:
     - name: Checkout repository
