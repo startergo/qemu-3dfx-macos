@@ -5,6 +5,9 @@ on:
     workflows: ["Build and Package QEMU 3dfx"]
     types:
       - completed
+    branches:
+      - master
+      - develop
   workflow_dispatch:
     inputs:
       artifact_name:
@@ -25,10 +28,36 @@ env:
   HOMEBREW_NO_INSTALL_CLEANUP: 1
 
 jobs:
+  debug-workflow-run:
+    name: Debug Workflow Run Event
+    runs-on: ubuntu-latest
+    # Always run debug for workflow_run events to see what's happening
+    if: github.event_name == 'workflow_run'
+    steps:
+    - name: Debug workflow_run event
+      run: |
+        echo "=== Workflow Run Event Debug ==="
+        echo "Event name: ${{ github.event_name }}"
+        echo "Workflow run conclusion: ${{ github.event.workflow_run.conclusion }}"
+        echo "Workflow run status: ${{ github.event.workflow_run.status }}"
+        echo "Workflow run name: ${{ github.event.workflow_run.name }}"
+        echo "Workflow run head branch: ${{ github.event.workflow_run.head_branch }}"
+        echo "Workflow run head sha: ${{ github.event.workflow_run.head_sha }}"
+        echo "Repository default branch: ${{ github.event.repository.default_branch }}"
+        echo "Actor: ${{ github.actor }}"
+        echo "Event action: ${{ github.event.action }}"
+        echo "=== Full Event ==="
+        echo '${{ toJson(github.event) }}'
+
   sign-and-test:
     name: Sign and Test Distribution (${{ matrix.arch }})
     runs-on: macos-latest
-    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
+    # Run if the build workflow completed successfully, or if manually triggered
+    if: |
+      (github.event_name == 'workflow_run' && 
+       github.event.workflow_run.conclusion == 'success' &&
+       contains(fromJson('["master", "develop"]'), github.event.workflow_run.head_branch)) ||
+      github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
         arch: [arm64, x86_64]

@@ -156,17 +156,13 @@ jobs:
         export LDFLAGS="-L/opt/homebrew/lib -L/opt/X11/lib"
         export CPPFLAGS="-I/opt/homebrew/include -I/usr/local/include"
         
-        # Ensure meson uses a Python version with PyYAML available
-        # Try Homebrew python3.12 first, fall back to system python3
-        if /opt/homebrew/bin/python3.12 -c "import yaml" 2>/dev/null; then
-          echo "Using Homebrew python3.12 for meson (has PyYAML)"
-          export MESON_PYTHON="/opt/homebrew/bin/python3.12"
-        elif python3 -c "import yaml" 2>/dev/null; then
-          echo "Using system python3 for meson (has PyYAML)"
-          export MESON_PYTHON="python3"
-        else
-          echo "Warning: PyYAML not found for any Python version"
-        fi
+        # Ensure PyYAML is available for the system python3 that meson will use
+        # Meson is installed via Homebrew and will use the system Python by default
+        echo "Ensuring PyYAML is available for system python3 (used by meson):"
+        python3 -c "import yaml; print('✓ PyYAML is available for system python3')" || {
+          echo "⚠️ PyYAML not found for system python3, installing..."
+          python3 -m pip install --break-system-packages PyYAML
+        }
         
         # Run the build (builds all targets: i386, x86_64, aarch64)
         ./scripts/build-qemu-3dfx.sh build
