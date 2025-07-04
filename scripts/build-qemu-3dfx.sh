@@ -540,31 +540,47 @@ build_qemu() {
     
     # Debug: List what was actually built
     log_info "Built binaries in $(pwd):"
-    ls -la qemu-system-* qemu-img 2>/dev/null || log_warning "No QEMU binaries found in build directory"
+    ls -la qemu-system-* qemu-img* 2>/dev/null || log_warning "No QEMU binaries found in build directory"
 }
 
 # Verify build
 verify_build() {
     log_info "Verifying build..."
     
-    local binaries=(
-        "${QEMU_BUILD_DIR}/qemu-system-i386"
-        "${QEMU_BUILD_DIR}/qemu-system-x86_64"
-        "${QEMU_BUILD_DIR}/qemu-system-aarch64"
+    # QEMU meson build creates binaries with -unsigned suffix
+    local base_binaries=(
+        "qemu-system-i386"
+        "qemu-system-x86_64"
+        "qemu-system-aarch64"
+        "qemu-img"
     )
     
     local found_count=0
     local test_binary=""
     
-    for binary in "${binaries[@]}"; do
-        if [ -f "$binary" ]; then
-            log_success "Found: $(basename "$binary")"
+    for base_name in "${base_binaries[@]}"; do
+        # Check for both unsigned and regular versions
+        local unsigned_binary="${QEMU_BUILD_DIR}/${base_name}-unsigned"
+        local regular_binary="${QEMU_BUILD_DIR}/${base_name}"
+        
+        if [ -f "$unsigned_binary" ]; then
+            log_success "Found: $(basename "$unsigned_binary")"
             found_count=$((found_count + 1))
             if [ -z "$test_binary" ]; then
-                test_binary="$binary"
+                test_binary="$unsigned_binary"
+            fi
+            
+            # Create symlink without -unsigned suffix for compatibility
+            ln -sf "$(basename "$unsigned_binary")" "$regular_binary" 2>/dev/null || true
+            
+        elif [ -f "$regular_binary" ]; then
+            log_success "Found: $(basename "$regular_binary")"
+            found_count=$((found_count + 1))
+            if [ -z "$test_binary" ]; then
+                test_binary="$regular_binary"
             fi
         else
-            log_warning "Missing: $(basename "$binary") (may not have been built)"
+            log_warning "Missing: $base_name (may not have been built)"
         fi
     done
     
@@ -608,6 +624,7 @@ EOF
     if [ -d "$QEMU_BUILD_DIR" ]; then
         echo -e "${GREEN}Built QEMU Binaries:${NC}"
         find "$QEMU_BUILD_DIR" -name "qemu-system-*" -type f | head -10
+        find "$QEMU_BUILD_DIR" -name "qemu-img*" -type f | head -5
         echo
     fi
     

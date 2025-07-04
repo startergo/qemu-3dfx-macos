@@ -252,35 +252,30 @@ jobs:
       run: |
         QEMU_BUILD_DIR="build/qemu-9.2.2/build"
         
-        # Copy main QEMU binaries (only if they exist)
-        if [ -f "${QEMU_BUILD_DIR}/qemu-system-i386" ]; then
-          cp "${QEMU_BUILD_DIR}/qemu-system-i386" "${STAGE_DIR}/bin/"
-          echo "✓ Packaged qemu-system-i386"
-        else
-          echo "⚠️ qemu-system-i386 not found, skipping"
-        fi
+        # Helper function to copy binary (handles both -unsigned and regular versions)
+        copy_binary() {
+          local binary_name="$1"
+          local unsigned_path="${QEMU_BUILD_DIR}/${binary_name}-unsigned"
+          local regular_path="${QEMU_BUILD_DIR}/${binary_name}"
+          
+          if [ -f "$unsigned_path" ]; then
+            cp "$unsigned_path" "${STAGE_DIR}/bin/${binary_name}"
+            echo "✓ Packaged ${binary_name} (from ${binary_name}-unsigned)"
+          elif [ -f "$regular_path" ]; then
+            cp "$regular_path" "${STAGE_DIR}/bin/"
+            echo "✓ Packaged ${binary_name}"
+          else
+            echo "⚠️ ${binary_name} not found, skipping"
+            return 1
+          fi
+          return 0
+        }
         
-        if [ -f "${QEMU_BUILD_DIR}/qemu-system-x86_64" ]; then
-          cp "${QEMU_BUILD_DIR}/qemu-system-x86_64" "${STAGE_DIR}/bin/"
-          echo "✓ Packaged qemu-system-x86_64"
-        else
-          echo "⚠️ qemu-system-x86_64 not found, skipping"
-        fi
-        
-        if [ -f "${QEMU_BUILD_DIR}/qemu-img" ]; then
-          cp "${QEMU_BUILD_DIR}/qemu-img" "${STAGE_DIR}/bin/"
-          echo "✓ Packaged qemu-img"
-        else
-          echo "⚠️ qemu-img not found, skipping"
-        fi
-        
-        # Copy architecture-specific binary if built
-        if [ -f "${QEMU_BUILD_DIR}/qemu-system-aarch64" ]; then
-          cp "${QEMU_BUILD_DIR}/qemu-system-aarch64" "${STAGE_DIR}/bin/"
-          echo "✓ Packaged qemu-system-aarch64"
-        else
-          echo "ℹ️ qemu-system-aarch64 not found (optional)"
-        fi
+        # Copy main QEMU binaries
+        copy_binary "qemu-system-i386" || true
+        copy_binary "qemu-system-x86_64" || true
+        copy_binary "qemu-img" || true
+        copy_binary "qemu-system-aarch64" || true
         
         # Copy libraries (look in multiple possible locations)
         LIB_PATHS=(
