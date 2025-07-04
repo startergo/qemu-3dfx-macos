@@ -465,13 +465,26 @@ build_virglrenderer() {
     # Configure with meson - macOS libepoxy doesn't support GLX/EGL
     log_info "Configuring virglrenderer for macOS (no platform extensions)"
     
-    meson setup "$VIRGL_BUILD_DIR" \
-        --prefix="$VIRGL_INSTALL_DIR" \
-        --buildtype=release \
-        -Dtests=false \
-        -Dplatforms= \
-        -Dminigbm_allocation=false \
-        -Dvenus=false
+    # Use MESON_PYTHON if set by the CI environment, otherwise use default python3
+    if [ -n "$MESON_PYTHON" ]; then
+        log_info "Using Python from environment: $MESON_PYTHON"
+        meson setup "$VIRGL_BUILD_DIR" \
+            --prefix="$VIRGL_INSTALL_DIR" \
+            --buildtype=release \
+            -Dtests=false \
+            -Dplatforms= \
+            -Dminigbm_allocation=false \
+            -Dvenus=false \
+            --python="$MESON_PYTHON"
+    else
+        meson setup "$VIRGL_BUILD_DIR" \
+            --prefix="$VIRGL_INSTALL_DIR" \
+            --buildtype=release \
+            -Dtests=false \
+            -Dplatforms= \
+            -Dminigbm_allocation=false \
+            -Dvenus=false
+    fi
     
     # Build and install
     cd "$VIRGL_BUILD_DIR"

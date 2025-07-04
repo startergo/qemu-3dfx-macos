@@ -102,7 +102,14 @@ jobs:
         brew install git wget cmake ninja meson pkg-config pixman libffi python@3.12
         
         # Install Python modules required for virglrenderer build
-        python3 -m pip install --break-system-packages PyYAML
+        # Install PyYAML for both system python3 and Homebrew python3.12
+        python3 -m pip install --break-system-packages PyYAML || true
+        /opt/homebrew/bin/python3.12 -m pip install --break-system-packages PyYAML || true
+        
+        # Verify PyYAML is available for the Python version meson will use
+        echo "Checking PyYAML availability:"
+        python3 -c "import yaml; print('PyYAML available for system python3')" || echo "PyYAML not found for system python3"
+        /opt/homebrew/bin/python3.12 -c "import yaml; print('PyYAML available for Homebrew python3.12')" || echo "PyYAML not found for Homebrew python3.12"
         
         # X11 development headers (required for Mesa GL compilation, separate from XQuartz runtime)
         brew install libx11 libxext libxfixes libxrandr libxinerama libxi libxcursor
@@ -148,6 +155,18 @@ jobs:
         export CFLAGS="-I/opt/homebrew/include -I/usr/local/include"
         export LDFLAGS="-L/opt/homebrew/lib -L/opt/X11/lib"
         export CPPFLAGS="-I/opt/homebrew/include -I/usr/local/include"
+        
+        # Ensure meson uses a Python version with PyYAML available
+        # Try Homebrew python3.12 first, fall back to system python3
+        if /opt/homebrew/bin/python3.12 -c "import yaml" 2>/dev/null; then
+          echo "Using Homebrew python3.12 for meson (has PyYAML)"
+          export MESON_PYTHON="/opt/homebrew/bin/python3.12"
+        elif python3 -c "import yaml" 2>/dev/null; then
+          echo "Using system python3 for meson (has PyYAML)"
+          export MESON_PYTHON="python3"
+        else
+          echo "Warning: PyYAML not found for any Python version"
+        fi
         
         # Run the build (builds all targets: i386, x86_64, aarch64)
         ./scripts/build-qemu-3dfx.sh build
