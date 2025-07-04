@@ -35,6 +35,7 @@ cd qemu-3dfx-macos
 - **macOS** (tested on macOS 10.15+)
 - **Homebrew** package manager
 - **Xcode Command Line Tools**: `xcode-select --install`
+- **XQuartz**: Required for Mesa GL context support ([Download](https://www.xquartz.org/) or `brew install --cask xquartz`)
 - **At least 4GB free disk space** for build files
 
 ## Build Script Usage

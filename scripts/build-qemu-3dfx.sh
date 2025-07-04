@@ -123,6 +123,16 @@ verify_environment() {
     done
     log_success "Essential build tools verified"
     
+    # Check for XQuartz (required for Mesa GL context support)
+    if [ ! -d "/opt/X11" ]; then
+        log_error "XQuartz is required but not installed."
+        log_info "XQuartz provides X11 libraries needed for Mesa GL context support."
+        log_info "Install XQuartz from: https://www.xquartz.org/"
+        log_info "Or via Homebrew: brew install --cask xquartz"
+        exit 1
+    fi
+    log_success "XQuartz found at /opt/X11"
+    
     # Check disk space (need at least 4GB)
     local free_space=$(df -h . | awk 'NR==2 {print $4}' | sed 's/G//')
     if [[ "$free_space" =~ ^[0-9]+$ ]] && [ "$free_space" -lt 4 ]; then
