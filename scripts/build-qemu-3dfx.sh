@@ -528,7 +528,6 @@ build_qemu() {
         --disable-curses \
         --enable-vnc \
         --enable-hvf \
-        --disable-tests \
         --disable-tcg-interpreter \
         --disable-guest-agent \
         --disable-docs
