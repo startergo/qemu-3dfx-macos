@@ -73,9 +73,56 @@ jobs:
         # Install Python modules required for virglrenderer build
         python3 -m pip install --break-system-packages PyYAML
         
+        # OpenGL development headers for Mesa GL support
+        brew install mesa mesa-glu
+        
         # SDL and Gaming Dependencies (essential for DOSBox-style gaming)
         brew install sdl2 sdl2_image sdl2_net sdl2_sound
         brew install sdl12-compat mt32emu
+        
+    - name: Setup OpenGL headers for Mesa GL support
+      run: |
+        # Create GL directory structure for Mesa headers
+        sudo mkdir -p /usr/local/include/GL
+        
+        # Check available OpenGL headers and create symlinks
+        if [ -d "/opt/homebrew/include/GL" ]; then
+          echo "Using Homebrew GL headers"
+          sudo ln -sf /opt/homebrew/include/GL/* /usr/local/include/GL/
+        elif [ -d "/System/Library/Frameworks/OpenGL.framework/Headers" ]; then
+          echo "Using system OpenGL framework headers"
+          sudo ln -sf /System/Library/Frameworks/OpenGL.framework/Headers/* /usr/local/include/GL/
+        fi
+        
+        # Check if we have the required header, if not try to find it
+        if [ ! -f "/usr/local/include/GL/glcorearb.h" ]; then
+          echo "Looking for glcorearb.h in alternative locations..."
+          
+          # Try to find it in Mesa installation
+          MESA_GL_HEADER=$(find /opt/homebrew -name "glcorearb.h" 2>/dev/null | head -1)
+          if [ -n "$MESA_GL_HEADER" ]; then
+            echo "Found glcorearb.h at: $MESA_GL_HEADER"
+            sudo ln -sf "$MESA_GL_HEADER" /usr/local/include/GL/glcorearb.h
+          else
+            echo "Creating minimal glcorearb.h stub"
+            echo '#ifndef __glcorearb_h_' | sudo tee /usr/local/include/GL/glcorearb.h > /dev/null
+            echo '#define __glcorearb_h_ 1' | sudo tee -a /usr/local/include/GL/glcorearb.h > /dev/null
+            echo '' | sudo tee -a /usr/local/include/GL/glcorearb.h > /dev/null
+            echo '#ifdef __APPLE__' | sudo tee -a /usr/local/include/GL/glcorearb.h > /dev/null
+            echo '#include <OpenGL/gl3.h>' | sudo tee -a /usr/local/include/GL/glcorearb.h > /dev/null
+            echo '#include <OpenGL/gl3ext.h>' | sudo tee -a /usr/local/include/GL/glcorearb.h > /dev/null
+            echo '#else' | sudo tee -a /usr/local/include/GL/glcorearb.h > /dev/null
+            echo '#include <GL/gl.h>' | sudo tee -a /usr/local/include/GL/glcorearb.h > /dev/null
+            echo '#include <GL/glext.h>' | sudo tee -a /usr/local/include/GL/glcorearb.h > /dev/null
+            echo '#endif' | sudo tee -a /usr/local/include/GL/glcorearb.h > /dev/null
+            echo '' | sudo tee -a /usr/local/include/GL/glcorearb.h > /dev/null
+            echo '#endif' | sudo tee -a /usr/local/include/GL/glcorearb.h > /dev/null
+          fi
+        fi
+        
+        # Verify the header is now available
+        ls -la /usr/local/include/GL/
+        echo "GL headers setup complete"
         
     - name: Build QEMU 3dfx
       run: |
