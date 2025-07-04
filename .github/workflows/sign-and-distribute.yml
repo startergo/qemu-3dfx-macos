@@ -1,0 +1,532 @@
+name: Sign and Distribute QEMU 3dfx
+
+on:
+  workflow_run:
+    workflows: ["Build and Package QEMU 3dfx"]
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      artifact_name:
+        description: 'Artifact name to sign and distribute'
+        required: true
+        type: string
+      architecture:
+        description: 'Target architecture'
+        required: true
+        type: choice
+        options:
+        - arm64
+        - x86_64
+        - all
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_INSTALL_CLEANUP: 1
+
+jobs:
+  sign-and-test:
+    name: Sign and Test Distribution (${{ matrix.arch }})
+    runs-on: macos-latest
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        arch: [arm64, x86_64]
+        exclude:
+          - arch: ${{ github.event.inputs.architecture == 'arm64' && 'x86_64' || (github.event.inputs.architecture == 'x86_64' && 'arm64' || 'none') }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set environment
+      run: |
+        COMMIT_SHORT=$(git rev-parse --short HEAD)
+        echo "COMMIT_SHORT=${COMMIT_SHORT}" >> $GITHUB_ENV
+        
+        # Set up test environment
+        echo "TEST_PREFIX=/tmp/qemu-3dfx-test" >> $GITHUB_ENV
+        echo "BREW_PREFIX=$(brew --prefix)" >> $GITHUB_ENV
+        
+    - name: Install signing dependencies
+      run: |
+        # Install Xcode command line tools if not present
+        xcode-select --install 2>/dev/null || true
+        
+        # Install X11 and signing tools
+        brew install --cask xquartz || echo "XQuartz already installed"
+        
+        # Verify signing tools
+        which codesign
+        which xattr
+        
+        # Check for Rez and SetFile (from Xcode)
+        if ! which Rez >/dev/null 2>&1; then
+          echo "Warning: Rez not found, may need full Xcode installation"
+        fi
+        
+        if ! which SetFile >/dev/null 2>&1; then
+          echo "Warning: SetFile not found, may need full Xcode installation"
+        fi
+        
+    - name: Download artifacts from trigger workflow
+      if: github.event_name == 'workflow_run'
+      uses: actions/download-artifact@v4
+      with:
+        name: qemu-3dfx-${{ matrix.arch }}-${{ github.sha }}
+        path: artifacts/
+        run-id: ${{ github.event.workflow_run.id }}
+        
+    - name: Download manual artifacts
+      if: github.event_name == 'workflow_dispatch'
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ github.event.inputs.artifact_name }}
+        path: artifacts/
+        
+    - name: Setup test environment
+      run: |
+        # Create test directory structure
+        sudo mkdir -p "${TEST_PREFIX}/opt/homebrew"
+        sudo mkdir -p "${TEST_PREFIX}/opt/homebrew/bin"
+        sudo mkdir -p "${TEST_PREFIX}/opt/homebrew/lib"
+        sudo mkdir -p "${TEST_PREFIX}/opt/homebrew/sign"
+        
+        # Set permissions
+        sudo chown -R $(whoami):admin "${TEST_PREFIX}"
+        
+    - name: Extract and test tarball
+      run: |
+        cd artifacts
+        
+        # Find the tarball for this architecture
+        TARBALL=$(ls qemu-9.2.2-3dfx-*-darwin-${{ matrix.arch }}.tar.zst 2>/dev/null | head -1)
+        
+        if [ -z "$TARBALL" ]; then
+          echo "❌ No tarball found for architecture ${{ matrix.arch }}"
+          ls -la
+          exit 1
+        fi
+        
+        echo "📦 Testing tarball: ${TARBALL}"
+        
+        # Verify checksum
+        if [ -f "${TARBALL}.sha256" ]; then
+          shasum -a 256 -c "${TARBALL}.sha256"
+          echo "✅ Checksum verification passed"
+        else
+          echo "⚠️ No checksum file found"
+        fi
+        
+        # Extract to test environment
+        sudo tar --zstd -xf "${TARBALL}" -C "${TEST_PREFIX}"
+        
+        echo "✅ Extraction completed"
+        
+    - name: Verify extracted files
+      run: |
+        echo "=== Verifying extracted files ==="
+        
+        # Find the extracted directory
+        EXTRACTED_DIR=$(find "${TEST_PREFIX}" -name "qemu-3dfx-*" -type d | head -1)
+        
+        if [ -z "$EXTRACTED_DIR" ]; then
+          echo "❌ No extracted directory found"
+          find "${TEST_PREFIX}" -type d
+          exit 1
+        fi
+        
+        echo "📁 Extracted directory: ${EXTRACTED_DIR}"
+        
+        # Check directory structure
+        echo "=== Directory structure ==="
+        ls -la "${EXTRACTED_DIR}/"
+        
+        echo "=== Binaries ==="
+        ls -la "${EXTRACTED_DIR}/bin/" || echo "No bin directory"
+        
+        echo "=== Libraries ==="
+        ls -la "${EXTRACTED_DIR}/lib/" || echo "No lib directory"
+        
+        echo "=== Signing files ==="
+        ls -la "${EXTRACTED_DIR}/sign/" || echo "No sign directory"
+        
+        # Test binary functionality
+        if [ -f "${EXTRACTED_DIR}/bin/qemu-system-i386" ]; then
+          echo "=== Testing qemu-system-i386 ==="
+          "${EXTRACTED_DIR}/bin/qemu-system-i386" --version
+          echo "✅ qemu-system-i386 is functional"
+        fi
+        
+        if [ -f "${EXTRACTED_DIR}/bin/qemu-system-x86_64" ]; then
+          echo "=== Testing qemu-system-x86_64 ==="
+          "${EXTRACTED_DIR}/bin/qemu-system-x86_64" --version
+          echo "✅ qemu-system-x86_64 is functional"
+        fi
+        
+    - name: Test signing script
+      run: |
+        # Find the extracted directory
+        EXTRACTED_DIR=$(find "${TEST_PREFIX}" -name "qemu-3dfx-*" -type d | head -1)
+        
+        if [ ! -f "${EXTRACTED_DIR}/sign/qemu.sign" ]; then
+          echo "❌ Signing script not found"
+          exit 1
+        fi
+        
+        echo "=== Testing signing script ==="
+        
+        # Check script syntax
+        bash -n "${EXTRACTED_DIR}/sign/qemu.sign"
+        echo "✅ Signing script syntax is valid"
+        
+        # Check if script has correct commit ID
+        if grep -q "qemu-3dfx-macos@${COMMIT_SHORT}" "${EXTRACTED_DIR}/sign/qemu.sign"; then
+          echo "✅ Signing script has correct commit ID: ${COMMIT_SHORT}"
+        else
+          echo "⚠️ Signing script commit ID may be outdated"
+          grep "qemu-3dfx-macos@" "${EXTRACTED_DIR}/sign/qemu.sign" || true
+        fi
+        
+        # Test signing dependencies check
+        cd "${EXTRACTED_DIR}/sign"
+        
+        echo "=== Checking signing dependencies ==="
+        
+        # Mock the dependency check part of the script
+        CHECK_DEPS="codesign xattr"
+        
+        for dep in $CHECK_DEPS; do
+          if which "$dep" >/dev/null 2>&1; then
+            echo "✅ $dep: $(which $dep)"
+          else
+            echo "❌ $dep: not found"
+          fi
+        done
+        
+        # Note: We don't actually run the signing script as it requires 
+        # the files to be in the correct Homebrew locations
+        echo "ℹ️ Signing script is ready for use after proper installation"
+        
+    - name: Test 3dfx device detection
+      run: |
+        # Find the extracted directory
+        EXTRACTED_DIR=$(find "${TEST_PREFIX}" -name "qemu-3dfx-*" -type d | head -1)
+        
+        if [ -f "${EXTRACTED_DIR}/bin/qemu-system-i386" ]; then
+          echo "=== Testing 3dfx device availability ==="
+          
+          # Test device help output
+          echo "--- Available devices ---"
+          "${EXTRACTED_DIR}/bin/qemu-system-i386" -device help | head -20
+          
+          # Look for 3dfx-related devices
+          echo "--- Searching for 3dfx/glide devices ---"
+          if "${EXTRACTED_DIR}/bin/qemu-system-i386" -device help | grep -i "3dfx\|glide\|voodoo"; then
+            echo "✅ 3dfx devices found in device list"
+          else
+            echo "ℹ️ 3dfx devices not in standard device list (may require parameters)"
+            
+            # Try with specific device parameter
+            echo "--- Testing specific 3dfx device ---"
+            if "${EXTRACTED_DIR}/bin/qemu-system-i386" -device 3dfx,help 2>/dev/null; then
+              echo "✅ 3dfx device responds to help parameter"
+            else
+              echo "ℹ️ 3dfx device may require specific voodoo parameter"
+            fi
+          fi
+        fi
+        
+    - name: Create distribution summary
+      run: |
+        EXTRACTED_DIR=$(find "${TEST_PREFIX}" -name "qemu-3dfx-*" -type d | head -1)
+        
+        cat > distribution-summary-${{ matrix.arch }}.md << EOF
+        # QEMU 3dfx Distribution Summary (${{ matrix.arch }})
+        
+        ## Build Information
+        - **Architecture**: ${{ matrix.arch }}
+        - **Commit**: ${COMMIT_SHORT}
+        - **Test Date**: $(date)
+        
+        ## Files Included
+        ### Binaries
+        $(if [ -d "${EXTRACTED_DIR}/bin" ]; then ls -la "${EXTRACTED_DIR}/bin/" | tail -n +2 | awk '{print "- " $9 " (" $5 " bytes)"}'; else echo "- No binaries found"; fi)
+        
+        ### Libraries
+        $(if [ -d "${EXTRACTED_DIR}/lib" ]; then ls -la "${EXTRACTED_DIR}/lib/" | tail -n +2 | awk '{print "- " $9 " (" $5 " bytes)"}'; else echo "- No libraries found"; fi)
+        
+        ### Signing Files
+        $(if [ -d "${EXTRACTED_DIR}/sign" ]; then ls -la "${EXTRACTED_DIR}/sign/" | tail -n +2 | awk '{print "- " $9 " (" $5 " bytes)"}'; else echo "- No signing files found"; fi)
+        
+        ## Test Results
+        - ✅ Tarball extraction: Success
+        - ✅ Binary functionality: Success
+        - ✅ Signing script syntax: Valid
+        - ℹ️ 3dfx device: Requires installation for full testing
+        
+        ## Installation Command
+        \`\`\`bash
+        sudo tar --zstd -xf qemu-9.2.2-3dfx-${COMMIT_SHORT}-darwin-${{ matrix.arch }}.tar.zst -C /
+        cd \$(brew --prefix)/sign
+        bash ./qemu.sign
+        \`\`\`
+        EOF
+        
+    - name: Upload distribution summary
+      uses: actions/upload-artifact@v4
+      with:
+        name: distribution-summary-${{ matrix.arch }}
+        path: distribution-summary-${{ matrix.arch }}.md
+        retention-days: 30
+        
+    - name: Cleanup test environment
+      if: always()
+      run: |
+        sudo rm -rf "${TEST_PREFIX}" || true
+
+  create-installation-guide:
+    name: Create Installation Guide
+    runs-on: ubuntu-latest
+    needs: sign-and-test
+    if: always()
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Download distribution summaries
+      uses: actions/download-artifact@v4
+      with:
+        pattern: distribution-summary-*
+        path: summaries/
+        merge-multiple: true
+        
+    - name: Create comprehensive installation guide
+      run: |
+        COMMIT_SHORT=$(git rev-parse --short HEAD)
+        
+        cat > INSTALLATION_GUIDE.md << 'EOF'
+        # QEMU 3dfx Installation Guide
+        
+        This guide covers the installation and usage of QEMU with 3dfx Glide and Mesa GL pass-through support.
+        
+        ## System Requirements
+        
+        - macOS 11.0 or later
+        - Apple Silicon (ARM64) or Intel (x86_64) Mac
+        - Homebrew package manager
+        - Xcode Command Line Tools
+        
+        ## Pre-Installation Setup
+        
+        1. **Install Homebrew** (if not already installed):
+           ```bash
+           /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+           ```
+        
+        2. **Install Xcode Command Line Tools**:
+           ```bash
+           xcode-select --install
+           ```
+        
+        3. **Install XQuartz** (for X11 support):
+           ```bash
+           brew install --cask xquartz
+           ```
+        
+        ## Installation Steps
+        
+        ### Step 1: Download
+        
+        Download the appropriate tarball for your Mac architecture:
+        
+        - **Apple Silicon (M1/M2/M3)**: `qemu-9.2.2-3dfx-*-darwin-arm64.tar.zst`
+        - **Intel**: `qemu-9.2.2-3dfx-*-darwin-x86_64.tar.zst`
+        
+        ### Step 2: Verify Download
+        
+        ```bash
+        # Verify the checksum
+        shasum -a 256 -c qemu-9.2.2-3dfx-*-darwin-*.tar.zst.sha256
+        ```
+        
+        ### Step 3: Extract
+        
+        ```bash
+        # Extract the tarball (requires sudo)
+        sudo tar --zstd -xf qemu-9.2.2-3dfx-*-darwin-*.tar.zst -C /
+        ```
+        
+        ### Step 4: Code Signing
+        
+        ```bash
+        # Navigate to signing directory
+        cd $(brew --prefix)/sign
+        
+        # Run the signing script
+        bash ./qemu.sign
+        ```
+        
+        The signing script will:
+        - Check for required dependencies
+        - Sign all QEMU binaries and libraries
+        - Add the QEMU icon to the main executable
+        - Set proper file attributes
+        
+        ### Step 5: Verify Installation
+        
+        ```bash
+        # Test QEMU installation
+        qemu-system-i386 --version
+        qemu-system-x86_64 --version
+        
+        # Check for 3dfx device (may require specific parameters)
+        qemu-system-i386 -device help | grep -i voodoo
+        ```
+        
+        ## Usage Examples
+        
+        ### DOS/Windows 9x Gaming with 3dfx Glide
+        
+        ```bash
+        qemu-system-i386 \
+          -machine pc-i440fx-2.1 \
+          -cpu pentium2 \
+          -m 128 \
+          -device 3dfx,voodoo=voodoo2 \
+          -soundhw sb16 \
+          -netdev user,id=net0 \
+          -device rtl8139,netdev=net0 \
+          -hda dos_games.img \
+          -boot c
+        ```
+        
+        ### Windows XP with 3dfx Support
+        
+        ```bash
+        qemu-system-i386 \
+          -machine pc-i440fx-2.12 \
+          -cpu pentium3 \
+          -m 512 \
+          -device 3dfx,voodoo=voodoo3 \
+          -soundhw ac97 \
+          -netdev user,id=net0 \
+          -device e1000,netdev=net0 \
+          -hda winxp.img \
+          -boot c
+        ```
+        
+        ### Modern Linux with Mesa GL Acceleration
+        
+        ```bash
+        qemu-system-x86_64 \
+          -enable-hvf \
+          -cpu host \
+          -m 4096 \
+          -device virtio-vga-gl \
+          -display sdl,gl=on \
+          -netdev user,id=net0 \
+          -device virtio-net-pci,netdev=net0 \
+          -hda linux.img \
+          -boot c
+        ```
+        
+        ## 3dfx Voodoo Options
+        
+        The 3dfx device supports different Voodoo card types:
+        
+        - `voodoo1` - Original Voodoo Graphics (4MB)
+        - `voodoo2` - Voodoo2 (8-12MB)
+        - `voodoo3` - Voodoo3 (16MB)
+        - `voodoo4` - Voodoo4 (32MB)
+        - `voodoo5` - Voodoo5 (64MB)
+        
+        Example:
+        ```bash
+        -device 3dfx,voodoo=voodoo2
+        ```
+        
+        ## Guest OS Wrapper Installation
+        
+        For optimal performance, install the appropriate guest wrappers:
+        
+        ### Windows 9x/ME
+        - Copy `FXMEMMAP.VXD` to `C:\WINDOWS\SYSTEM`
+        - Copy Glide DLLs to `C:\WINDOWS\SYSTEM`
+        - Copy `OPENGL32.DLL` to game directories
+        
+        ### Windows 2000/XP
+        - Copy `FXPTL.SYS` to `%SystemRoot%\system32\drivers`
+        - Run `INSTDRV.EXE` as Administrator
+        - Copy Glide DLLs to `%SystemRoot%\system32`
+        - Copy `OPENGL32.DLL` to game directories
+        
+        ## Troubleshooting
+        
+        ### Common Issues
+        
+        1. **"qemu-system-i386: command not found"**
+           - Ensure `/opt/homebrew/bin` is in your PATH
+           - Run: `export PATH="/opt/homebrew/bin:$PATH"`
+        
+        2. **Code signing errors**
+           - Ensure you have Xcode Command Line Tools installed
+           - Try running `xcode-select --install`
+        
+        3. **3dfx device not detected**
+           - The device may not appear in standard device lists
+           - Use specific voodoo parameters: `-device 3dfx,voodoo=voodoo2`
+        
+        4. **Performance issues**
+           - Ensure HVF is enabled: `-enable-hvf`
+           - Use appropriate CPU settings: `-cpu host` or `-cpu pentium3`
+           - Allocate sufficient memory: `-m 512` or higher
+        
+        ### Getting Help
+        
+        - Check the [project wiki](https://github.com/startergo/qemu-3dfx-macos/wiki)
+        - Visit [VOGONS forums](https://www.vogons.org)
+        - Watch demos on [YouTube](https://www.youtube.com/@qemu-3dfx/videos)
+        
+        ## Uninstallation
+        
+        To remove QEMU 3dfx:
+        
+        ```bash
+        # Remove binaries
+        sudo rm -f /opt/homebrew/bin/qemu-*
+        
+        # Remove libraries
+        sudo rm -f /opt/homebrew/lib/libglide*.dylib
+        sudo rm -f /opt/homebrew/lib/libvirglrenderer*.dylib
+        
+        # Remove signing files
+        sudo rm -rf /opt/homebrew/sign
+        ```
+        
+        ---
+        
+        **Note**: This installation overwrites any existing QEMU installation from Homebrew. To restore the original QEMU, run `brew reinstall qemu`.
+        EOF
+        
+        # Add architecture-specific summaries if available
+        if [ -d "summaries" ]; then
+          echo "" >> INSTALLATION_GUIDE.md
+          echo "## Distribution Details" >> INSTALLATION_GUIDE.md
+          echo "" >> INSTALLATION_GUIDE.md
+          
+          for summary in summaries/distribution-summary-*.md; do
+            if [ -f "$summary" ]; then
+              cat "$summary" >> INSTALLATION_GUIDE.md
+              echo "" >> INSTALLATION_GUIDE.md
+            fi
+          done
+        fi
+        
+    - name: Upload installation guide
+      uses: actions/upload-artifact@v4
+      with:
+        name: installation-guide
+        path: INSTALLATION_GUIDE.md
+        retention-days: 90

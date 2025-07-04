@@ -1,0 +1,205 @@
+#!/bin/bash
+
+CHECK_DEPS="\
+codesign
+xattr
+brew
+" \
+
+OPTIONAL_DEPS="\
+Rez
+SetFile
+X
+" \
+
+echo "=== Checking required dependencies ==="
+for i in $CHECK_DEPS; do
+    echo -n "checking for $i... "
+    if [ -z $(which $i 2>/dev/null) ]; then
+        echo not found
+        echo "Error: Required dependency '$i' not found"
+        exit 1
+    fi
+    echo $(which $i)
+done
+
+echo "=== Checking optional dependencies ==="
+for i in $OPTIONAL_DEPS; do
+    echo -n "checking for $i... "
+    if [ -z $(which $i 2>/dev/null) ]; then
+        echo not found
+        echo "Warning: Optional dependency '$i' not found"
+        echo "  Some features may not work (icon, file attributes)"
+    else
+        echo $(which $i)
+    fi
+done
+
+echo "=== Generating dynamic identity ==="
+# Try environment variable first (for CI/CD)
+if [ -n "$QEMU_3DFX_COMMIT" ]; then
+    GIT_HASH="$QEMU_3DFX_COMMIT"
+    echo "Using commit hash from environment: $GIT_HASH"
+# Try to get git commit hash from current directory or parent directories
+else
+    GIT_HASH=""
+    for dir in . .. ../.. ../../..; do
+        if [ -d "$dir/.git" ]; then
+            GIT_HASH=$(cd "$dir" && git rev-parse HEAD 2>/dev/null | sed 's/\(.......\).*/\1/')
+            if [ -n "$GIT_HASH" ]; then
+                echo "Found git repository in $dir"
+                echo "Using commit hash: $GIT_HASH"
+                break
+            fi
+        fi
+    done
+fi
+
+# Fallback to static hash if git not available
+if [ -z "$GIT_HASH" ]; then
+    GIT_HASH="e5562fa"
+    echo "Warning: Git repository not found, using fallback hash: $GIT_HASH"
+fi
+
+IDEN="qemu-3dfx-macos@${GIT_HASH}"
+echo "Identity: $IDEN"
+
+QEMU_ICO=../sign/qemu.rsrc
+QEMU_EXE=../bin/qemu-system-i386
+
+echo "=== Discovering available binaries and libraries ==="
+
+# Discover QEMU binaries
+QEMU_BINARIES=""
+BINARY_COUNT=0
+if [ -d "../bin" ]; then
+    echo "Scanning ../bin for QEMU binaries..."
+    for binary in ../bin/qemu-*; do
+        if [ -f "$binary" ] && [ -x "$binary" ]; then
+            # Skip backup files
+            if [[ "$binary" != *.backup ]]; then
+                QEMU_BINARIES="$QEMU_BINARIES $binary"
+                echo "Found binary: $binary"
+                BINARY_COUNT=$((BINARY_COUNT + 1))
+            fi
+        fi
+    done
+    echo "Total binaries found: $BINARY_COUNT"
+else
+    echo "Warning: ../bin directory not found"
+fi
+
+# Discover libraries
+QEMU_LIBRARIES=""
+LIBRARY_COUNT=0
+if [ -d "../lib" ]; then
+    echo "Scanning ../lib for dynamic libraries..."
+    for lib in ../lib/*.dylib; do
+        if [ -f "$lib" ]; then
+            # Skip symbolic links, prefer the actual versioned libraries
+            if [ ! -L "$lib" ]; then
+                QEMU_LIBRARIES="$QEMU_LIBRARIES $lib"
+                echo "Found library: $lib"
+                LIBRARY_COUNT=$((LIBRARY_COUNT + 1))
+            fi
+        fi
+    done
+    echo "Total libraries found: $LIBRARY_COUNT"
+else
+    echo "Warning: ../lib directory not found"
+fi
+
+# Combine all files to sign
+SIGN_EXE="$QEMU_BINARIES $QEMU_LIBRARIES"
+
+if [ -z "${SIGN_EXE// }" ]; then
+    echo "Error: No binaries or libraries found to sign"
+    echo "Expected structure:"
+    echo "  ../bin/qemu-* (executables)"
+    echo "  ../lib/*.dylib (dynamic libraries)"
+    echo ""
+    echo "Current directory: $(pwd)"
+    echo "Listing ../bin/:"
+    ls -la ../bin/ 2>/dev/null || echo "  Directory not found"
+    echo "Listing ../lib/:"
+    ls -la ../lib/*.dylib 2>/dev/null || echo "  No .dylib files found"
+    exit 1
+fi
+
+echo "=== Files to be signed ==="
+for file in $SIGN_EXE; do
+    if [ -f "$file" ]; then
+        echo "  $file ($(du -h "$file" | cut -f1))"
+    fi
+done
+
+if [ ! -f $QEMU_ICO ]; then
+    echo "QEMU icon not found at $QEMU_ICO"
+    echo "Trying Homebrew prefix location..."
+    cd `brew --prefix`/sign 2>/dev/null || {
+        echo "Warning: Could not find Homebrew sign directory"
+        echo "Continuing without icon..."
+    }
+fi
+
+echo "=== Signing executables and libraries ==="
+for i in $SIGN_EXE; do
+    if [ ! -f $i ]; then
+        echo "$i not found - skipping"
+        continue
+    fi
+    echo "Signing: $i"
+    xattr -c $i 2>/dev/null || echo "Warning: Could not clear attributes for $i"
+    codesign -s - -i $IDEN -f $i || echo "Warning: Could not sign $i"
+done
+
+echo "=== Adding icon and setting attributes ==="
+if [ -f $QEMU_ICO ] && [ -f $QEMU_EXE ] && which Rez >/dev/null 2>&1; then
+    echo "Adding icon to $QEMU_EXE"
+    Rez -append $QEMU_ICO -o $QEMU_EXE || echo "Warning: Could not add icon"
+else
+    echo "Skipping icon addition (icon, executable, or Rez not available)"
+fi
+
+if [ -f $QEMU_EXE ] && which SetFile >/dev/null 2>&1; then
+    echo "Setting file attributes for $QEMU_EXE"
+    SetFile -a C $QEMU_EXE || echo "Warning: Could not set file attributes"
+else
+    echo "Skipping file attributes (executable or SetFile not available)"
+fi
+echo "######################################################"
+echo "###                                                ###"
+echo "###              *** SUCCESS ***                   ###"
+echo "###                                                ###"
+echo "###    QEMU 3dfx binaries have been signed!       ###"
+echo "###                                                ###"
+echo "######################################################"
+echo ""
+echo "Installation Summary:"
+echo "- QEMU binaries: $BINARY_COUNT signed"
+echo "- Dynamic libraries: $LIBRARY_COUNT signed"
+echo "- Identity: $IDEN"
+echo ""
+echo "Signed Files:"
+for file in $SIGN_EXE; do
+    if [ -f "$file" ]; then
+        echo "  $(basename "$file") ($(du -h "$file" | cut -f1))"
+    fi
+done
+echo ""
+echo "Usage:"
+echo "  # 3dfx acceleration (Voodoo Graphics/Voodoo2):"
+echo "  qemu-system-i386 -device 3dfx,voodoo=voodoo2 -hda game.img"
+echo ""
+echo "  # Virgl3D acceleration (modern OpenGL):"
+echo "  qemu-system-x86_64 -device virtio-vga-gl -display sdl,gl=on -hda os.img"
+echo ""
+echo "  # Available architectures:"
+for binary in $QEMU_BINARIES; do
+    if [[ "$(basename "$binary")" == qemu-system-* ]]; then
+        arch=$(basename "$binary" | sed 's/qemu-system-//')
+        echo "    $arch"
+    fi
+done
+echo ""
+echo "Clean up with: rm -fr \`brew --prefix\`/sign"

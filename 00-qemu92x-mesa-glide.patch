@@ -219,7 +219,7 @@ diff -Nru ../orig/qemu-9.2.2/system/vl.c ./system/vl.c
 +{
 +    const char rev_[ALIGNED(1)]
 +        ;
-+    printf("  featuring qemu-3dfx@%s"__TIME__" "__DATE__" build\n", rev_);
++    printf("  featuring qemu-3dfx-macos@%s"__TIME__" "__DATE__" build\n", rev_);
 +}
 +
  static void version(void)

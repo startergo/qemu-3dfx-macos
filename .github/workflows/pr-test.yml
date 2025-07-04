@@ -1,0 +1,41 @@
+name: PR Quick Test
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  quick-test:
+    name: Quick Environment Test
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up environment
+      run: |
+        echo "HOMEBREW_NO_AUTO_UPDATE=1" >> $GITHUB_ENV
+        echo "HOMEBREW_NO_INSTALL_CLEANUP=1" >> $GITHUB_ENV
+        
+    - name: Check script syntax
+      run: |
+        chmod +x build-qemu-3dfx.sh
+        bash -n build-qemu-3dfx.sh
+        
+    - name: Test environment check
+      run: |
+        ./build-qemu-3dfx.sh check-env
+        
+    - name: Test help command
+      run: |
+        ./build-qemu-3dfx.sh help
+        
+    - name: Install minimal dependencies
+      run: |
+        brew install git wget pkg-config libepoxy
+        
+    - name: Test package detection
+      run: |
+        # Test that the script can detect installed packages
+        ./build-qemu-3dfx.sh check-env

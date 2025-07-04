@@ -1,0 +1,105 @@
+name: CI - Build Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-environment:
+    name: Test Environment Setup
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Make test script executable
+        run: chmod +x test-ci.sh
+
+      - name: Test environment setup
+        run: ./test-ci.sh environment
+
+  test-dependencies:
+    name: Test Dependencies
+    runs-on: macos-latest
+    needs: test-environment
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Make scripts executable
+        run: |
+          chmod +x build-qemu-3dfx.sh
+          chmod +x test-ci.sh
+
+      - name: Test dependency checking
+        run: ./test-ci.sh dependencies
+
+  test-source-download:
+    name: Test Source Download
+    runs-on: macos-latest
+    needs: test-dependencies
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Make scripts executable
+        run: |
+          chmod +x build-qemu-3dfx.sh
+          chmod +x test-ci.sh
+
+      - name: Test source download
+        run: ./test-ci.sh download
+
+  test-patches:
+    name: Test Patch Application
+    runs-on: macos-latest
+    needs: test-source-download
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Make scripts executable
+        run: |
+          chmod +x build-qemu-3dfx.sh
+          chmod +x test-ci.sh
+
+      - name: Test patch application
+        run: ./test-ci.sh patches
+
+  test-virgl-build:
+    name: Test Virglrenderer Build
+    runs-on: macos-latest
+    needs: test-patches
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Make scripts executable
+        run: |
+          chmod +x build-qemu-3dfx.sh
+          chmod +x test-ci.sh
+
+      - name: Test virglrenderer build
+        run: ./test-ci.sh virgl
+
+  test-qemu-configure:
+    name: Test QEMU Configure
+    runs-on: macos-latest
+    needs: test-virgl-build
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Make scripts executable
+        run: |
+          chmod +x build-qemu-3dfx.sh
+          chmod +x test-ci.sh
+
+      - name: Test QEMU configure
+        run: ./test-ci.sh configure

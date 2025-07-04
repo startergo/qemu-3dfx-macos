@@ -1,0 +1,51 @@
+# Build artifacts and temporary files
+build/
+*.tar.xz
+*.tar.gz
+*.zip
+
+# macOS system files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# AI conversation and development files
+.specstory/
+markdown
+*.session
+*.chat
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Log files
+*.log
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Node.js
+node_modules/
+npm-debug.log*
+
+# Temporary directories
+tmp/
+temp/
+
+# macOS Homebrew backup
+.qemu-3dfx-macos-backup/

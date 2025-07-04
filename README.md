@@ -15,7 +15,7 @@ KJ Liew \<liewkj@yahoo.com\>
 Witness, experience and share your thoughts on modern CPU/GPU prowess for retro Windows games on Apple Silicon macOS, modern Windows and Linux. Most games can be installed and played in pristine condition without the hassle of hunting down unofficial, fan-made patches to play them on modern Windows or Linux/Wine.
 - YouTube channel (https://www.youtube.com/@qemu-3dfx/videos)
 - VOGONS forums (https://www.vogons.org)
-- Wiki (https://github.com/kjliew/qemu-3dfx/wiki)
+- Wiki (https://github.com/startergo/qemu-3dfx-macos/wiki)
 ## Building QEMU
 Following instructions are based on `MSYS2/mingw-w64` BASH shell environment on modern Windows. It is meant to be simple and minor variations are inevitable due to different flavors of Linux distributions.
 
@@ -23,8 +23,8 @@ Simple guide to apply the patch:<br>
 (using `00-qemu92x-mesa-glide.patch`)
 
     $ mkdir ~/myqemu && cd ~/myqemu
-    $ git clone https://github.com/kjliew/qemu-3dfx.git
-    $ cd qemu-3dfx
+    $ git clone https://github.com/startergo/qemu-3dfx-macos.git
+    $ cd qemu-3dfx-macos
     $ wget https://download.qemu.org/qemu-9.2.2.tar.xz
     $ tar xf qemu-9.2.2.tar.xz
     $ cd qemu-9.2.2
@@ -73,7 +73,7 @@ For $89.99 donation, you will deserve the following donor's privileges:
 - QEMU binary package built for platform of your choice (choose **ONE**: Windows 10/11, Ubuntu, etc.)
 - QEMU-enhanced OpenGLide **Host-side wrappers** built for platform of your choice (choose **ONE**: Windows 10/11, Ubuntu, etc.)
 - QEMU-enhanced [**WineD3D libraries for Win98/2K/ME/XP VMs**](https://www.winehq.org) for DirectDraw/Direct3D games up to DirectX 9.0c
-- Game controllers support with [**QEMU USB Gamepad**](https://github.com/kjliew/qemu-3dfx/wiki/QEMU-USB-Gamepad)
+- Game controllers support with [**QEMU USB Gamepad**](https://github.com/startergo/qemu-3dfx-macos/wiki/QEMU-USB-Gamepad)
 - SDL2 clipboard sharing through built-in [**QEMU vdagent**](https://www.kraxel.org/blog/2021/05/qemu-cut-paste/)
 - OpenGLide **Guest-side wrappers** for Windows
 - Elect up to 5 games for priority support and your name as the honorary sponsor in the supported & tested list of games.

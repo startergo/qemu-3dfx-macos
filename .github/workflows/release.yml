@@ -1,0 +1,219 @@
+name: Release - Full Build
+
+on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create a release'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  full-build:
+    name: Full QEMU 3dfx Build
+    runs-on: macos-latest
+    timeout-minutes: 180
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up environment
+        run: |
+          echo "Setting up build environment..."
+          
+          # Set build parameters
+          echo "HOMEBREW_NO_AUTO_UPDATE=1" >> $GITHUB_ENV
+          echo "HOMEBREW_NO_INSTALL_CLEANUP=1" >> $GITHUB_ENV
+          
+          # Free up space
+          sudo rm -rf /System/Library/Extensions/AppleUSBEthernet.kext || true
+          sudo rm -rf /Applications/Xcode.app/Contents/Developer/Platforms/watchOS.platform || true
+          sudo rm -rf /Applications/Xcode.app/Contents/Developer/Platforms/tvOS.platform || true
+          
+          df -h
+
+      - name: Get version info
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            TAG="${{ github.event.release.tag_name }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${{ github.ref_name }}"
+            TAG="${{ github.ref_name }}"
+          else
+            VERSION="$(date +%Y%m%d)-$(git rev-parse --short HEAD)"
+            TAG="snapshot-$VERSION"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Cache Homebrew packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            /opt/homebrew/Cellar
+            /opt/homebrew/Caskroom
+          key: ${{ runner.os }}-homebrew-${{ hashFiles('build-qemu-3dfx.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-homebrew-
+
+      - name: Cache build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/qemu-*.tar.xz
+            build/virglrenderer
+          key: ${{ runner.os }}-build-sources-${{ hashFiles('build-qemu-3dfx.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-build-sources-
+
+      - name: Make scripts executable
+        run: |
+          chmod +x build-qemu-3dfx.sh
+          chmod +x test-ci.sh
+
+      - name: Build QEMU with 3dfx/Virgl3D
+        run: |
+          echo "Starting full QEMU build..."
+          ./build-qemu-3dfx.sh build
+
+      - name: Run comprehensive tests
+        run: |
+          echo "Running comprehensive tests..."
+          ./test-ci.sh all
+
+      - name: Create build info
+        run: |
+          BUILD_INFO="build-info-${{ steps.version.outputs.version }}.txt"
+          cat > "$BUILD_INFO" << EOF
+          QEMU 3dfx/Virgl3D Build Information
+          ===================================
+          
+          Build Date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          Version: ${{ steps.version.outputs.version }}
+          Git Commit: $(git rev-parse HEAD)
+          Git Branch: $(git rev-parse --abbrev-ref HEAD)
+          
+          Build Environment:
+          - macOS Version: $(sw_vers -productVersion)
+          - Xcode Version: $(xcode-select --version)
+          - Homebrew Version: $(brew --version | head -1)
+          
+          QEMU Configuration:
+          - QEMU Version: 9.2.2
+          - Targets: i386-softmmu, x86_64-softmmu, aarch64-softmmu
+          - Features: SDL2, OpenGL, Virglrenderer, 3dfx support
+          
+          Build Artifacts:
+          - qemu-system-i386 (with 3dfx support)
+          - qemu-system-x86_64 (with Virgl3D support)
+          - qemu-system-aarch64 (with Virgl3D support)
+          
+          Usage:
+          Extract the tarball and run QEMU binaries directly.
+          See README.md for configuration examples.
+          EOF
+          echo "BUILD_INFO_FILE=$BUILD_INFO" >> $GITHUB_ENV
+
+      - name: Package build artifacts
+        run: |
+          ARCHIVE_NAME="qemu-3dfx-macos-${{ steps.version.outputs.version }}"
+          echo "ARCHIVE_NAME=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
+          
+          mkdir -p "$ARCHIVE_NAME"
+          
+          # Copy QEMU binaries
+          cp build/qemu-9.2.2/build/qemu-system-i386 "$ARCHIVE_NAME/"
+          cp build/qemu-9.2.2/build/qemu-system-x86_64 "$ARCHIVE_NAME/"
+          cp build/qemu-9.2.2/build/qemu-system-aarch64 "$ARCHIVE_NAME/"
+          
+          # Copy documentation
+          cp README.md "$ARCHIVE_NAME/"
+          cp LICENSE "$ARCHIVE_NAME/"
+          cp "${{ env.BUILD_INFO_FILE }}" "$ARCHIVE_NAME/"
+          
+          # Create usage script
+          cat > "$ARCHIVE_NAME/run-examples.sh" << 'EOF'
+          #!/bin/bash
+          # QEMU 3dfx/Virgl3D Usage Examples
+          
+          echo "QEMU 3dfx/Virgl3D Usage Examples"
+          echo "================================"
+          echo
+          echo "1. Run with 3dfx support (for retro games):"
+          echo "./qemu-system-i386 -machine pc-i440fx-2.1 -cpu pentium2 -m 128 -device 3dfx,voodoo=voodoo2 -hda dos.img"
+          echo
+          echo "2. Run with Virgl3D support (modern OpenGL acceleration):"
+          echo "./qemu-system-x86_64 -m 2048 -device virtio-vga-gl -display sdl,gl=on -hda linux.img"
+          echo
+          echo "3. Test QEMU version:"
+          echo "./qemu-system-x86_64 --version"
+          EOF
+          chmod +x "$ARCHIVE_NAME/run-examples.sh"
+          
+          # Create tarball
+          tar -czf "${ARCHIVE_NAME%%.tar.gz}.tar.gz" "${ARCHIVE_NAME%%.tar.gz}"
+          
+          echo "Created archive: ${ARCHIVE_NAME}"
+          ls -lh "${ARCHIVE_NAME}"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-3dfx-macos-${{ steps.version.outputs.version }}
+          path: |
+            ${{ env.ARCHIVE_NAME }}
+            ${{ env.BUILD_INFO_FILE }}
+          retention-days: 30
+
+      - name: Create Release
+        if: github.event_name == 'release' || github.event.inputs.create_release == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: QEMU 3dfx/Virgl3D ${{ steps.version.outputs.version }}
+          body: |
+            # QEMU 3dfx/Virgl3D Build for macOS
+            
+            This release provides QEMU 9.2.2 with KJ's 3dfx patches and Virgl3D support for macOS.
+            
+            ## Features
+            - 3dfx Voodoo emulation for retro gaming
+            - Virgl3D OpenGL acceleration for modern guests
+            - SDL2 display backend
+            - Support for i386, x86_64, and aarch64 targets
+            
+            ## Installation
+            1. Download the `qemu-3dfx-macos-*.tar.gz` file
+            2. Extract: `tar -xzf qemu-3dfx-macos-*.tar.gz`
+            3. Run examples: `./run-examples.sh`
+            
+            ## System Requirements
+            - macOS 12.0 or later
+            - Apple Silicon or Intel Mac
+            - At least 4GB free disk space
+            
+            Built on: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          files: |
+            ${{ env.ARCHIVE_NAME }}
+            ${{ env.BUILD_INFO_FILE }}
+          draft: false
+          prerelease: ${{ !contains(github.ref, 'refs/tags/v') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
