@@ -514,10 +514,15 @@ build_qemu() {
         --disable-dbus-display \
         --disable-curses \
         --enable-vnc \
-        --enable-hvf
+        --enable-hvf \
+        --disable-tests \
+        --disable-tcg-interpreter \
+        --disable-guest-agent \
+        --disable-docs
     
     # Build with ninja (QEMU 9.2.2 uses meson/ninja build system)
-    ninja
+    # Limit parallel jobs to reduce memory usage on CI
+    ninja -j$(( $(nproc 2>/dev/null || echo 4) / 2 ))
     
     log_success "QEMU built successfully"
 }
