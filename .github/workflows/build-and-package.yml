@@ -69,6 +69,29 @@ jobs:
         # Install XQuartz (REQUIRED by KJ for Mesa GL context support)
         brew install --cask xquartz
         
+        # XQuartz needs to be properly initialized - create the expected directory structure
+        sudo mkdir -p /opt/X11/lib /opt/X11/include
+        
+        # Link XQuartz libraries to expected location if they're not there yet
+        if [ ! -d "/opt/X11/lib" ] || [ -z "$(ls -A /opt/X11/lib 2>/dev/null)" ]; then
+          echo "Setting up XQuartz library symlinks..."
+          # XQuartz installs to /usr/X11/lib on some systems, check multiple locations
+          for xquartz_lib in "/usr/X11/lib" "/System/Library/Frameworks/OpenGL.framework/Libraries" "/opt/homebrew/lib"; do
+            if [ -d "$xquartz_lib" ]; then
+              sudo ln -sf "$xquartz_lib"/*X11* /opt/X11/lib/ 2>/dev/null || true
+              sudo ln -sf "$xquartz_lib"/*GL* /opt/X11/lib/ 2>/dev/null || true
+            fi
+          done
+          
+          # If still empty, create minimal structure using Homebrew X11 libraries
+          if [ -z "$(ls -A /opt/X11/lib 2>/dev/null)" ]; then
+            echo "Creating X11 library structure using Homebrew libraries..."
+            sudo ln -sf /opt/homebrew/lib/libX11* /opt/X11/lib/
+            sudo ln -sf /opt/homebrew/lib/libXext* /opt/X11/lib/
+            sudo ln -sf /opt/homebrew/lib/libGL* /opt/X11/lib/ 2>/dev/null || true
+          fi
+        fi
+        
         # Install KJ's specified core prerequisites
         brew install capstone glib gettext gnutls libepoxy libgcrypt libslirp jpeg-turbo lz4 opus sdl2 zstd
         
@@ -109,6 +132,8 @@ jobs:
         test -f /usr/local/include/X11/extensions/xf86vmode.h && echo "✓ xf86vmode.h found" || echo "✗ xf86vmode.h missing"
         echo "Checking XQuartz X11 library installation:"
         ls -la /opt/X11/lib/ || echo "XQuartz X11 lib directory not found"
+        echo "Verifying X11 library files:"
+        ls -la /opt/X11/lib/*X11* 2>/dev/null || echo "No X11 libraries found in /opt/X11/lib/"
         echo "Headers setup complete"
         
     - name: Build QEMU 3dfx

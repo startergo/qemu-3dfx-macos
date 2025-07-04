@@ -125,13 +125,26 @@ verify_environment() {
     
     # Check for XQuartz (required for Mesa GL context support)
     if [ ! -d "/opt/X11" ]; then
-        log_error "XQuartz is required but not installed."
-        log_info "XQuartz provides X11 libraries needed for Mesa GL context support."
-        log_info "Install XQuartz from: https://www.xquartz.org/"
-        log_info "Or via Homebrew: brew install --cask xquartz"
-        exit 1
+        # In CI environments, check if we have the necessary X11 libraries from Homebrew instead
+        if [ -n "$CI" ] || [ -n "$GITHUB_ACTIONS" ]; then
+            log_warning "XQuartz directory not found, but this is a CI environment."
+            log_info "Checking for X11 libraries in Homebrew instead..."
+            if [ -f "/opt/homebrew/lib/libX11.dylib" ]; then
+                log_success "Found Homebrew X11 libraries, proceeding with build"
+            else
+                log_error "No X11 libraries found in either XQuartz or Homebrew"
+                exit 1
+            fi
+        else
+            log_error "XQuartz is required but not installed."
+            log_info "XQuartz provides X11 libraries needed for Mesa GL context support."
+            log_info "Install XQuartz from: https://www.xquartz.org/"
+            log_info "Or via Homebrew: brew install --cask xquartz"
+            exit 1
+        fi
+    else
+        log_success "XQuartz found at /opt/X11"
     fi
-    log_success "XQuartz found at /opt/X11"
     
     # Check disk space (need at least 4GB)
     local free_space=$(df -h . | awk 'NR==2 {print $4}' | sed 's/G//')
