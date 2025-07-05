@@ -1,13 +1,14 @@
-name: Release - Full Build
+name: Release - Full Build (DISABLED - replaced by build-and-package.yml)
 
 on:
-  release:
-    types: [published]
-  push:
-    tags:
-      - 'v*'
+  # Disabled - functionality replaced by build-and-package.yml and sign-and-distribute.yml
   workflow_dispatch:
     inputs:
+      force_enable:
+        description: 'Force enable this legacy workflow'
+        required: false
+        default: false
+        type: boolean
       create_release:
         description: 'Create a release'
         required: false

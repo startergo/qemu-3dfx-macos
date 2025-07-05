@@ -1,8 +1,14 @@
-name: PR Quick Test
+name: PR Quick Test (DISABLED - replaced by build-and-package.yml)
 
 on:
-  pull_request:
-    branches: [ master ]
+  # Disabled - PR testing now handled by build-and-package.yml
+  workflow_dispatch:
+    inputs:
+      force_enable:
+        description: 'Force enable this legacy workflow'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   quick-test:

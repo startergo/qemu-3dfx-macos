@@ -1,12 +1,14 @@
-name: Test QEMU 3dfx Build
+name: Test QEMU 3dfx Build (DISABLED - replaced by build-and-package.yml)
 
 on:
-  push:
-    branches: [ master, develop ]
-  pull_request:
-    branches: [ master ]
+  # Disabled - functionality replaced by build-and-package.yml
   workflow_dispatch:
     inputs:
+      force_enable:
+        description: 'Force enable this legacy workflow'
+        required: false
+        default: false
+        type: boolean
       test_full_build:
         description: 'Run full build test (slower)'
         required: false

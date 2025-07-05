@@ -1,10 +1,14 @@
-name: Release Test
+name: Release Test (DISABLED - replaced by build-and-package.yml)
 
 on:
-  release:
-    types: [published]
+  # Disabled - functionality replaced by build-and-package.yml
   workflow_dispatch:
     inputs:
+      force_enable:
+        description: 'Force enable this legacy workflow'
+        required: false
+        default: false
+        type: boolean
       full_build_test:
         description: 'Run complete build test'
         required: false
