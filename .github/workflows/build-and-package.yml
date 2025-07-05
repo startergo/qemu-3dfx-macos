@@ -177,31 +177,38 @@ jobs:
         echo "=== Checking built binaries ==="
         ls -la "${QEMU_BUILD_DIR}/qemu-system-"* || echo "No qemu-system binaries found"
         
-        # Check for essential binaries
+        # Check for essential binaries based on runner architecture
         FOUND_BINARIES=0
         
-        if [ -f "${QEMU_BUILD_DIR}/qemu-system-i386" ]; then
-          echo "✅ qemu-system-i386 built successfully"
-          ${QEMU_BUILD_DIR}/qemu-system-i386 --version
-          FOUND_BINARIES=$((FOUND_BINARIES + 1))
-        else
-          echo "⚠️ qemu-system-i386 not found (may have failed linking)"
-        fi
+        # Helper function to check for both -unsigned and regular versions
+        check_binary() {
+          local binary_name="$1"
+          local description="$2"
+          
+          if [ -f "${QEMU_BUILD_DIR}/${binary_name}-unsigned" ]; then
+            echo "✅ ${binary_name} built successfully (unsigned version)"
+            ${QEMU_BUILD_DIR}/${binary_name}-unsigned --version
+            FOUND_BINARIES=$((FOUND_BINARIES + 1))
+          elif [ -f "${QEMU_BUILD_DIR}/${binary_name}" ]; then
+            echo "✅ ${binary_name} built successfully"
+            ${QEMU_BUILD_DIR}/${binary_name} --version
+            FOUND_BINARIES=$((FOUND_BINARIES + 1))
+          else
+            echo "⚠️ ${binary_name} not found ${description}"
+          fi
+        }
         
-        if [ -f "${QEMU_BUILD_DIR}/qemu-system-x86_64" ]; then
-          echo "✅ qemu-system-x86_64 built successfully"
-          ${QEMU_BUILD_DIR}/qemu-system-x86_64 --version
-          FOUND_BINARIES=$((FOUND_BINARIES + 1))
-        else
-          echo "⚠️ qemu-system-x86_64 not found (may have failed linking)"
-        fi
+        # Check x86 targets (built on all runners)
+        check_binary "qemu-system-i386" "(may have failed linking)"
+        check_binary "qemu-system-x86_64" "(may have failed linking)"
+        check_binary "qemu-img" "(may have failed linking)"
         
-        if [ -f "${QEMU_BUILD_DIR}/qemu-system-aarch64" ]; then
-          echo "✅ qemu-system-aarch64 built successfully"
-          ${QEMU_BUILD_DIR}/qemu-system-aarch64 --version
-          FOUND_BINARIES=$((FOUND_BINARIES + 1))
+        # Check ARM target only on ARM64 runners
+        if [ "${{ matrix.runner_arch }}" = "arm64" ]; then
+          echo "=== ARM64 runner: checking ARM target ==="
+          check_binary "qemu-system-aarch64" "(may have failed linking)"
         else
-          echo "⚠️ qemu-system-aarch64 not found (may have failed linking)"
+          echo "=== Intel runner: skipping ARM target (not built for efficiency) ==="
         fi
         
         # Require at least one binary to be built
@@ -271,11 +278,18 @@ jobs:
           return 0
         }
         
-        # Copy main QEMU binaries
+        # Copy main QEMU binaries (architecture-aware)
         copy_binary "qemu-system-i386" || true
         copy_binary "qemu-system-x86_64" || true
         copy_binary "qemu-img" || true
-        copy_binary "qemu-system-aarch64" || true
+        
+        # Only copy ARM64 binary if we're on ARM64 runner (where it was built)
+        if [ "${{ matrix.runner_arch }}" = "arm64" ]; then
+          echo "=== ARM64 runner: packaging ARM target ==="
+          copy_binary "qemu-system-aarch64" || true
+        else
+          echo "=== Intel runner: skipping ARM target (not built) ==="
+        fi
         
         # Copy libraries (look in multiple possible locations)
         LIB_PATHS=(
@@ -404,7 +418,7 @@ jobs:
         
         # Test signing script (dry run)
         cd sign
-        bash -n ./scripts/qemu.sign  # Syntax check
+        bash -n ./qemu.sign  # Syntax check
         
         echo "✅ Signing script syntax is valid"
 

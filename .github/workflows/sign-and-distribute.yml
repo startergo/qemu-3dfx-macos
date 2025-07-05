@@ -49,20 +49,46 @@ jobs:
         echo "=== Full Event ==="
         echo '${{ toJson(github.event) }}'
 
-  sign-and-test:
-    name: Sign and Test Distribution (${{ matrix.arch }})
-    runs-on: macos-latest
-    # Run if the build workflow completed successfully, or if manually triggered
+  determine-architecture:
+    name: Determine Target Architecture
+    runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_run' && 
        github.event.workflow_run.conclusion == 'success' &&
        contains(fromJson('["master", "develop"]'), github.event.workflow_run.head_branch)) ||
       github.event_name == 'workflow_dispatch'
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+    - name: Set architecture matrix
+      id: set-matrix
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          case "${{ github.event.inputs.architecture }}" in
+            "arm64")
+              echo 'matrix={"arch":["arm64"]}' >> $GITHUB_OUTPUT
+              ;;
+            "x86_64")
+              echo 'matrix={"arch":["x86_64"]}' >> $GITHUB_OUTPUT
+              ;;
+            "all"|"")
+              echo 'matrix={"arch":["arm64","x86_64"]}' >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo 'matrix={"arch":["arm64","x86_64"]}' >> $GITHUB_OUTPUT
+              ;;
+          esac
+        else
+          # For workflow_run (automatic), always run both architectures
+          echo 'matrix={"arch":["arm64","x86_64"]}' >> $GITHUB_OUTPUT
+        fi
+
+  sign-and-test:
+    name: Sign and Test Distribution (${{ matrix.arch }})
+    runs-on: macos-latest
+    needs: determine-architecture
     strategy:
-      matrix:
-        arch: [arm64, x86_64]
-        exclude:
-          - arch: ${{ github.event.inputs.architecture == 'arm64' && 'x86_64' || (github.event.inputs.architecture == 'x86_64' && 'arm64' || 'none') }}
+      matrix: ${{ fromJson(needs.determine-architecture.outputs.matrix) }}
     
     steps:
     - name: Checkout repository

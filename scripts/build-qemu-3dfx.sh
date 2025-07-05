@@ -517,8 +517,22 @@ build_qemu() {
     export LDFLAGS="-L/opt/homebrew/lib -L/opt/X11/lib ${LDFLAGS:-}"
     export CPPFLAGS="-I/opt/homebrew/include -I/usr/local/include ${CPPFLAGS:-}"
     
+    # Determine target list based on host architecture for optimal build efficiency
+    local host_arch=$(uname -m)
+    local target_list=""
+    
+    if [ "$host_arch" = "arm64" ]; then
+        # ARM64 (Apple Silicon) can efficiently build all targets including ARM
+        target_list="i386-softmmu,x86_64-softmmu,aarch64-softmmu"
+        log_info "Building for ARM64 host: including all targets (x86 + ARM)"
+    else
+        # Intel x86_64 should only build x86 targets for efficiency
+        target_list="i386-softmmu,x86_64-softmmu"
+        log_info "Building for Intel host: x86 targets only for optimal performance"
+    fi
+    
     ../configure \
-        --target-list=i386-softmmu,x86_64-softmmu,aarch64-softmmu \
+        --target-list="$target_list" \
         --enable-sdl \
         --enable-opengl \
         --disable-cocoa \
@@ -547,13 +561,18 @@ build_qemu() {
 verify_build() {
     log_info "Verifying build..."
     
-    # QEMU meson build creates binaries with -unsigned suffix
-    local base_binaries=(
-        "qemu-system-i386"
-        "qemu-system-x86_64"
-        "qemu-system-aarch64"
-        "qemu-img"
-    )
+    # Determine which binaries should exist based on host architecture
+    local host_arch=$(uname -m)
+    local base_binaries=("qemu-system-i386" "qemu-system-x86_64" "qemu-img")
+    
+    if [ "$host_arch" = "arm64" ]; then
+        # ARM64 hosts build ARM targets too
+        base_binaries+=("qemu-system-aarch64")
+        log_info "Verifying ARM64 host build: checking x86 + ARM targets"
+    else
+        # Intel hosts only build x86 targets
+        log_info "Verifying Intel host build: checking x86 targets only"
+    fi
     
     local found_count=0
     local test_binary=""
