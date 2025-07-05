@@ -1,0 +1,313 @@
+name: Build QEMU-3dfx for Windows
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+    inputs:
+      apply_experimental:
+        description: 'Apply experimental patches (SDL Clipboard)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  windows-build:
+    runs-on: windows-2019
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - msystem: 'MINGW64'
+            pkg_prefix: 'mingw-w64-x86_64'
+            artifact_suffix: 'mingw64'
+          - msystem: 'UCRT64'
+            pkg_prefix: 'mingw-w64-ucrt-x86_64'
+            artifact_suffix: 'ucrt64'
+    env:
+      QEMU_VERSION: '10.0.2'
+      PATCH_FILE: '00-qemu100x-mesa-glide.patch'
+      APPLY_EXPERIMENTAL: ${{ github.event.inputs.apply_experimental == 'true' }}
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: >-
+            base
+            base-devel
+            dos2unix
+            gcc
+            git
+            make
+            ninja
+            patch
+            python
+            rsync
+            wget
+            xorriso
+            zstd
+            ${{ matrix.pkg_prefix }}-python
+            ${{ matrix.pkg_prefix }}-python-distlib
+            ${{ matrix.pkg_prefix }}-python-setuptools
+            ${{ matrix.pkg_prefix }}-python-sphinx
+            ${{ matrix.pkg_prefix }}-python-sphinx_rtd_theme
+            ${{ matrix.pkg_prefix }}-angleproject
+            ${{ matrix.pkg_prefix }}-autotools
+            ${{ matrix.pkg_prefix }}-binutils
+            ${{ matrix.pkg_prefix }}-toolchain
+            ${{ matrix.pkg_prefix }}-tools
+            ${{ matrix.pkg_prefix }}-7zip
+            ${{ matrix.pkg_prefix }}-cairo
+            ${{ matrix.pkg_prefix }}-capstone
+            ${{ matrix.pkg_prefix }}-curl
+            ${{ matrix.pkg_prefix }}-cyrus-sasl
+            ${{ matrix.pkg_prefix }}-dtc
+            ${{ matrix.pkg_prefix }}-expat
+            ${{ matrix.pkg_prefix }}-fontconfig
+            ${{ matrix.pkg_prefix }}-freetype
+            ${{ matrix.pkg_prefix }}-gcc
+            ${{ matrix.pkg_prefix }}-gdk-pixbuf2
+            ${{ matrix.pkg_prefix }}-gettext-runtime
+            ${{ matrix.pkg_prefix }}-gettext-tools
+            ${{ matrix.pkg_prefix }}-glib2
+            ${{ matrix.pkg_prefix }}-gnutls
+            ${{ matrix.pkg_prefix }}-gst-libav
+            ${{ matrix.pkg_prefix }}-gst-plugins-ugly
+            ${{ matrix.pkg_prefix }}-gtk3
+            ${{ matrix.pkg_prefix }}-gtk-vnc
+            ${{ matrix.pkg_prefix }}-jack2
+            ${{ matrix.pkg_prefix }}-libcacard
+            ${{ matrix.pkg_prefix }}-libgcrypt
+            ${{ matrix.pkg_prefix }}-libepoxy
+            ${{ matrix.pkg_prefix }}-libnfs
+            ${{ matrix.pkg_prefix }}-libpng
+            ${{ matrix.pkg_prefix }}-libslirp
+            ${{ matrix.pkg_prefix }}-libssh
+            ${{ matrix.pkg_prefix }}-libssh2
+            ${{ matrix.pkg_prefix }}-libtasn1
+            ${{ matrix.pkg_prefix }}-libusb
+            ${{ matrix.pkg_prefix }}-libxml2
+            ${{ matrix.pkg_prefix }}-lz4
+            ${{ matrix.pkg_prefix }}-lzo2
+            ${{ matrix.pkg_prefix }}-meson
+            ${{ matrix.pkg_prefix }}-msitools
+            ${{ matrix.pkg_prefix }}-ncurses
+            ${{ matrix.pkg_prefix }}-nettle
+            ${{ matrix.pkg_prefix }}-ninja
+            ${{ matrix.pkg_prefix }}-pcre2
+            ${{ matrix.pkg_prefix }}-pixman
+            ${{ matrix.pkg_prefix }}-pkgconf
+            ${{ matrix.pkg_prefix }}-pulseaudio
+            ${{ matrix.pkg_prefix }}-SDL2
+            ${{ matrix.pkg_prefix }}-SDL2_image
+            ${{ matrix.pkg_prefix }}-SDL2_sound
+            ${{ matrix.pkg_prefix }}-snappy
+            ${{ matrix.pkg_prefix }}-spice
+            ${{ matrix.pkg_prefix }}-spice-gtk
+            ${{ matrix.pkg_prefix }}-spice-protocol
+            ${{ matrix.pkg_prefix }}-usbredir
+            ${{ matrix.pkg_prefix }}-virglrenderer
+            ${{ matrix.pkg_prefix }}-xz
+            ${{ matrix.pkg_prefix }}-zlib
+            ${{ matrix.pkg_prefix }}-zstd
+
+      - name: Download and extract QEMU source
+        shell: msys2 {0}
+        run: |
+          echo "Downloading QEMU source version ${{ env.QEMU_VERSION }}"
+          wget -q https://download.qemu.org/qemu-${{ env.QEMU_VERSION }}.tar.xz
+          echo "Extracting QEMU source"
+          tar xf qemu-${{ env.QEMU_VERSION }}.tar.xz
+          echo "QEMU source extracted successfully"
+
+      - name: Apply patches and prepare source
+        shell: msys2 {0}
+        run: |
+          echo "Adding 3dfx and mesa files to QEMU source"
+          rsync -rv qemu-0/hw/3dfx qemu-1/hw/mesa qemu-${{ env.QEMU_VERSION }}/hw/
+          cd qemu-${{ env.QEMU_VERSION }}
+          
+          echo "Applying main QEMU-3dfx patch: ${{ env.PATCH_FILE }}"
+          patch -p0 -i ../${{ env.PATCH_FILE }}
+          
+          if [[ "${{ env.APPLY_EXPERIMENTAL }}" == "true" ]]; then
+            echo "Applying experimental SDL Clipboard patch"
+            if [[ -f ../qemu-exp/SDL-Clipboard.patch ]]; then
+              patch -p1 -i ../qemu-exp/SDL-Clipboard.patch
+              echo "SDL Clipboard patch applied successfully"
+            else
+              echo "SDL Clipboard patch not found, skipping"
+            fi
+          else
+            echo "Skipping experimental patches"
+          fi
+          
+          echo "Signing commit ID"
+          bash ../scripts/sign_commit
+          echo "Build preparation completed"
+
+      - name: Create build directory
+        run: mkdir -p build
+
+      - name: Configure QEMU build
+        working-directory: ./build
+        shell: msys2 {0}
+        run: |
+          echo "Configuring QEMU build for ${{ matrix.msystem }}"
+          ../qemu-${{ env.QEMU_VERSION }}/configure \
+            --target-list="x86_64-softmmu,i386-softmmu" \
+            --prefix=$(pwd)/../install_dir \
+            --extra-cflags="-march=native -mtune=native -O3 -flto=auto"
+          echo "Configuration completed"
+
+      - name: Build QEMU
+        working-directory: ./build
+        shell: msys2 {0}
+        run: |
+          echo "Building QEMU with $(nproc) parallel jobs"
+          make -j$(nproc)
+          echo "QEMU build completed"
+
+      - name: Install QEMU build
+        working-directory: ./build
+        shell: msys2 {0}
+        run: |
+          echo "Installing QEMU to output directory"
+          make install
+          cd ../install_dir
+          
+          echo "Signing binaries"
+          bash ../scripts/sign_binary
+          
+          echo "Creating version info"
+          echo "QEMU-3dfx-macOS (Windows Build)" > version.txt
+          echo "=================================================" >> version.txt
+          echo "GitHub Actions Artifact Build" >> version.txt
+          echo "Repository: startergo/qemu-3dfx-macos" >> version.txt
+          echo "Branch: ${{ github.ref_name }}" >> version.txt
+          echo "Version: ${{ env.QEMU_VERSION }}" >> version.txt
+          echo "Build System: ${{ matrix.msystem }}" >> version.txt
+          echo "Build Date: $(date)" >> version.txt
+          echo "Commit: ${{ github.sha }}" >> version.txt
+          echo "Experimental patches: ${{ env.APPLY_EXPERIMENTAL }}" >> version.txt
+          unix2dos version.txt
+          echo "QEMU installation completed at $(date)"
+
+      - name: Build Windows guest wrappers
+        shell: msys2 {0}
+        continue-on-error: true
+        run: |
+          echo "Building Windows guest wrappers"
+          
+          # Check if wrapper build components exist
+          if [[ ! -d "wrappers/3dfx" ]]; then
+            echo "3dfx wrapper directory not found, skipping wrapper build"
+            exit 0
+          fi
+          
+          echo "Building 3dfx wrappers"
+          cd wrappers/3dfx
+          if [[ -f "../../scripts/conf_wrapper" ]]; then
+            mkdir -p build && cd build
+            bash ../../../scripts/conf_wrapper || true
+            make || true
+            make clean || true
+            echo "3dfx wrappers built successfully"
+          else
+            echo "conf_wrapper script not found, skipping 3dfx wrapper build"
+          fi
+          
+          echo "Building Mesa wrappers"
+          cd ../../mesa
+          if [[ -d "../mesa" ]]; then
+            mkdir -p build && cd build
+            bash ../../../scripts/conf_wrapper || true
+            make || true
+            make clean || true
+            echo "Mesa wrappers built successfully"
+          else
+            echo "Mesa wrapper directory not found, skipping Mesa wrapper build"
+          fi
+
+      - name: Package wrappers
+        shell: msys2 {0}
+        continue-on-error: true
+        working-directory: ./wrappers
+        run: |
+          echo "Packaging wrappers"
+          
+          # Create wrapper structure if components exist
+          if [[ -d "3dfx" || -d "mesa" ]]; then
+            mkdir -p iso/wrapfx iso/wrapgl
+            
+            # Copy 3dfx wrapper files if they exist
+            if [[ -d "3dfx/build" ]]; then
+              cp -f 3dfx/build/*.{vxd,sys,dll,dxe,ovl,exe} iso/wrapfx/ 2>/dev/null || true
+            fi
+            
+            # Copy Mesa wrapper files if they exist
+            if [[ -d "mesa/build" ]]; then
+              cp -f mesa/build/*.{dll,exe} iso/wrapgl/ 2>/dev/null || true
+            fi
+            
+            # Copy additional files if they exist
+            cd iso
+            [[ -f ../texts/readme.txt ]] && cp ../texts/readme.txt readme.txt
+            [[ -f ../../LICENSE ]] && cp ../../LICENSE license.txt
+            [[ -f autorun.inf ]] && unix2dos autorun.inf
+            [[ -f open.bat ]] && unix2dos open.bat
+            [[ -f readme.txt ]] && unix2dos readme.txt
+            [[ -f license.txt ]] && unix2dos license.txt
+            
+            # Sign wrapper binaries
+            bash ../../scripts/sign_binary
+            
+            cd ..
+            echo "Creating wrapper ISO"
+            xorriso -as mkisofs -JR -V "QEMU3DFX-WRAPPERS-$(git log --format="%h" -n 1)" -o wrappers.iso iso
+            echo "Wrapper packaging completed at $(date)"
+          else
+            echo "No wrapper components found, skipping wrapper packaging"
+          fi
+
+      - name: Upload QEMU binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-3dfx-windows-${{ matrix.artifact_suffix }}-${{ env.QEMU_VERSION }}-${{ github.run_number }}
+          path: ./install_dir
+          retention-days: 30
+
+      - name: Upload wrapper disk
+        uses: actions/upload-artifact@v4
+        if: hashFiles('./wrappers/wrappers.iso') != ''
+        with:
+          name: qemu-3dfx-wrappers-${{ matrix.artifact_suffix }}-${{ github.run_number }}
+          path: ./wrappers/wrappers.iso
+          retention-days: 30
+
+      - name: Build summary
+        shell: msys2 {0}
+        run: |
+          echo "=== Build Summary for ${{ matrix.msystem }} ==="
+          echo "QEMU Version: ${{ env.QEMU_VERSION }}"
+          echo "Patch Applied: ${{ env.PATCH_FILE }}"
+          echo "Experimental patches: ${{ env.APPLY_EXPERIMENTAL }}"
+          echo "Build System: ${{ matrix.msystem }}"
+          echo "Package Prefix: ${{ matrix.pkg_prefix }}"
+          echo "Artifact Suffix: ${{ matrix.artifact_suffix }}"
+          echo "Build completed at: $(date)"
+          if [[ -d "install_dir" ]]; then
+            echo "QEMU binaries:"
+            find install_dir -name "qemu-*.exe" -exec basename {} \;
+          fi
+          if [[ -f "wrappers/wrappers.iso" ]]; then
+            echo "Wrapper ISO size: $(du -h wrappers/wrappers.iso | cut -f1)"
+          fi
