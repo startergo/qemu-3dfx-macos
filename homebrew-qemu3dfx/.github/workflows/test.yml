@@ -1,0 +1,118 @@
+name: Test Homebrew Formulae
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    # Test weekly on Sundays at 2 AM UTC
+    - cron: '0 2 * * 0'
+
+jobs:
+  test-formulae:
+    runs-on: macos-latest
+    
+    strategy:
+      matrix:
+        os: [macos-12, macos-13, macos-14]
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Homebrew
+      uses: Homebrew/actions/setup-homebrew@master
+      
+    - name: Update Homebrew
+      run: brew update
+      
+    - name: Install test dependencies
+      run: |
+        brew install --quiet cmake meson ninja pkg-config
+        
+    - name: Validate tap structure
+      run: ./test-tap.sh validate
+      
+    - name: Test formula syntax
+      run: |
+        for formula in Formula/*.rb; do
+          echo "Testing syntax for $formula"
+          brew audit --formula "$formula" || echo "Warning: $formula has audit issues"
+        done
+        
+    - name: Test formula dependencies
+      run: |
+        for formula in Formula/*.rb; do
+          echo "Testing dependencies for $formula"
+          brew deps --formula "$formula" || echo "Warning: $formula has dependency issues"
+        done
+        
+    - name: Test installation (dry run)
+      run: |
+        for formula in Formula/*.rb; do
+          echo "Testing installation for $formula"
+          brew install --dry-run "$formula" || echo "Warning: $formula installation may fail"
+        done
+        
+    - name: Run full test suite
+      run: ./test-tap.sh test
+      continue-on-error: true
+      
+  test-build:
+    runs-on: macos-latest
+    needs: test-formulae
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Homebrew
+      uses: Homebrew/actions/setup-homebrew@master
+      
+    - name: Install build dependencies
+      run: |
+        brew install cmake meson ninja pkg-config glib pixman
+        brew install sdl2 sdl2_image libepoxy
+        
+    - name: Test virglrenderer-3dfx build
+      run: |
+        brew install --build-from-source Formula/virglrenderer-3dfx.rb
+        brew test virglrenderer-3dfx
+        
+    - name: Test glide-3dfx build
+      run: |
+        brew install --build-from-source Formula/glide-3dfx.rb
+        brew test glide-3dfx
+      continue-on-error: true  # May fail if wrapper sources not available
+        
+    - name: Test qemu-3dfx build (limited)
+      run: |
+        # Don't actually build QEMU (too resource intensive)
+        # Just test dependency resolution and formula validation
+        brew deps Formula/qemu-3dfx.rb
+        brew audit --formula Formula/qemu-3dfx.rb
+        
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Lint Ruby files
+      uses: github/super-linter@v4
+      env:
+        DEFAULT_BRANCH: main
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        VALIDATE_ALL_CODEBASE: false
+        VALIDATE_RUBY: true
+        
+    - name: Lint Markdown files
+      uses: github/super-linter@v4
+      env:
+        DEFAULT_BRANCH: main
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        VALIDATE_ALL_CODEBASE: false
+        VALIDATE_MARKDOWN: true

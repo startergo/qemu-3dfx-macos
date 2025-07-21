@@ -1,0 +1,28 @@
+name: qemu3dfx
+description: QEMU with 3dfx Voodoo emulation and Virgl3D OpenGL acceleration for macOS
+homepage: https://github.com/startergo/qemu-3dfx-macos
+
+formulae:
+  - qemu-3dfx
+  - virglrenderer-3dfx  
+  - glide-3dfx
+
+maintainers:
+  - startergo
+
+supported_platforms:
+  - macOS 10.15+
+  - Intel x86_64
+  - Apple Silicon (arm64)
+
+requirements:
+  - Xcode Command Line Tools
+  - Homebrew
+  - 4GB+ free disk space
+
+features:
+  - 3dfx Voodoo1/2/Banshee emulation
+  - Glide 2.x/3.x API support
+  - Virgl3D OpenGL acceleration
+  - SDL2 display backend
+  - macOS optimized builds
