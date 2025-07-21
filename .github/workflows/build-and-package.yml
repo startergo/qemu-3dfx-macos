@@ -1,11 +1,6 @@
 name: Build and Package QEMU 3dfx
 
 on:
-  push:
-    branches: [ master, develop ]
-    tags: [ 'v*' ]
-  pull_request:
-    branches: [ master ]
   workflow_dispatch:
     inputs:
       create_release:
@@ -22,6 +17,11 @@ on:
         - arm64
         - x86_64
         - universal
+      apply_experimental:
+        description: 'Apply experimental patches (SDL Clipboard) - EXPERIMENTAL'
+        required: false
+        default: false
+        type: boolean
 
 env:
   HOMEBREW_NO_AUTO_UPDATE: 1
@@ -145,102 +145,118 @@ jobs:
         ls -la /opt/X11/lib/*X11* 2>/dev/null || echo "No X11 libraries found in /opt/X11/lib/"
         echo "Headers setup complete"
         
-    - name: Build QEMU 3dfx
+    - name: Build QEMU 3dfx with Homebrew
       run: |
-        chmod +x scripts/build-qemu-3dfx.sh
-        
         # Set commit identity for the sign_commit script
         export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
         
-        # Set up build environment for Homebrew paths
-        export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
-        export CFLAGS="-I/opt/homebrew/include -I/usr/local/include"
-        export LDFLAGS="-L/opt/homebrew/lib -L/opt/X11/lib"
-        export CPPFLAGS="-I/opt/homebrew/include -I/usr/local/include"
+        # Set experimental patch flag if requested
+        if [ "${{ github.event.inputs.apply_experimental }}" = "true" ]; then
+          export APPLY_EXPERIMENTAL_PATCHES="true"
+          echo "🧪 Experimental patches will be applied"
+        else
+          export APPLY_EXPERIMENTAL_PATCHES="false"
+          echo "📦 Standard build without experimental patches"
+        fi
         
-        # Ensure PyYAML is available for the system python3 that meson will use
-        # Meson is installed via Homebrew and will use the system Python by default
-        echo "Ensuring PyYAML is available for system python3 (used by meson):"
-        python3 -c "import yaml; print('✓ PyYAML is available for system python3')" || {
-          echo "⚠️ PyYAML not found for system python3, installing..."
-          python3 -m pip install --break-system-packages PyYAML
+        # Install our custom QEMU 3dfx formula
+        echo "Installing QEMU 3dfx via Homebrew formula..."
+        cd homebrew-qemu3dfx
+        brew install --build-from-source ./Formula/qemu-3dfx.rb
+        
+        # Verify installation
+        echo "Verifying QEMU 3dfx installation..."
+        brew list qemu-3dfx
+        
+        # Check version signature
+        qemu-system-i386 --version | grep "featuring qemu-3dfx" || {
+          echo "❌ QEMU 3dfx signature not found in version output"
+          exit 1
         }
         
-        # Run the build (builds all targets: i386, x86_64, aarch64)
-        ./scripts/build-qemu-3dfx.sh build
+        echo "✅ QEMU 3dfx installed successfully via Homebrew"
         
     - name: Verify build
       run: |
-        # Check what QEMU binaries were built successfully
-        QEMU_BUILD_DIR="build/qemu-9.2.2/build"
+        # Check Homebrew installation paths
+        HOMEBREW_PREFIX=$(brew --prefix)
+        echo "=== Checking Homebrew QEMU 3dfx installation ==="
         
-        echo "=== Checking built binaries ==="
-        ls -la "${QEMU_BUILD_DIR}/qemu-system-"* || echo "No qemu-system binaries found"
+        # Check installed binaries
+        echo "Checking QEMU binaries in ${HOMEBREW_PREFIX}/bin:"
+        ls -la "${HOMEBREW_PREFIX}/bin/qemu-"* || echo "No QEMU binaries found"
         
-        # Check for essential binaries based on runner architecture
+        # Check for essential binaries
         FOUND_BINARIES=0
         
-        # Helper function to check for both -unsigned and regular versions
+        # Helper function to check and test binaries
         check_binary() {
           local binary_name="$1"
           local description="$2"
           
-          if [ -f "${QEMU_BUILD_DIR}/${binary_name}-unsigned" ]; then
-            echo "✅ ${binary_name} built successfully (unsigned version)"
-            ${QEMU_BUILD_DIR}/${binary_name}-unsigned --version
-            FOUND_BINARIES=$((FOUND_BINARIES + 1))
-          elif [ -f "${QEMU_BUILD_DIR}/${binary_name}" ]; then
-            echo "✅ ${binary_name} built successfully"
-            ${QEMU_BUILD_DIR}/${binary_name} --version
+          if [ -f "${HOMEBREW_PREFIX}/bin/${binary_name}" ]; then
+            echo "✅ ${binary_name} installed successfully"
+            ${HOMEBREW_PREFIX}/bin/${binary_name} --version
             FOUND_BINARIES=$((FOUND_BINARIES + 1))
           else
             echo "⚠️ ${binary_name} not found ${description}"
           fi
         }
         
-        # Check x86 targets (built on all runners)
-        check_binary "qemu-system-i386" "(may have failed linking)"
-        check_binary "qemu-system-x86_64" "(may have failed linking)"
-        check_binary "qemu-img" "(may have failed linking)"
+        # Check core binaries
+        check_binary "qemu-system-i386" "(required for 3dfx support)"
+        check_binary "qemu-system-x86_64" "(required for modern systems)"
+        check_binary "qemu-img" "(disk image utility)"
         
         # Check ARM target only on ARM64 runners
         if [ "${{ matrix.runner_arch }}" = "arm64" ]; then
           echo "=== ARM64 runner: checking ARM target ==="
-          check_binary "qemu-system-aarch64" "(may have failed linking)"
+          check_binary "qemu-system-aarch64" "(ARM virtualization)"
         else
-          echo "=== Intel runner: skipping ARM target (not built for efficiency) ==="
+          echo "=== Intel runner: checking ARM target availability ==="
+          check_binary "qemu-system-aarch64" "(ARM virtualization - may not be built)"
         fi
+        
+        # Check libraries
+        echo "=== Checking installed libraries ==="
+        ls -la "${HOMEBREW_PREFIX}/lib/libglide"* 2>/dev/null || echo "⚠️ Glide libraries not found"
+        ls -la "${HOMEBREW_PREFIX}/lib/libvirglrenderer"* 2>/dev/null || echo "⚠️ VirGL libraries not found"
+        ls -la "${HOMEBREW_PREFIX}/lib/libspice-server"* 2>/dev/null || echo "⚠️ SPICE libraries not found"
+        
+        # Check QEMU data files
+        echo "=== Checking QEMU data files ==="
+        ls -la "${HOMEBREW_PREFIX}/share/qemu/" 2>/dev/null || echo "⚠️ QEMU data files not found"
         
         # Require at least one binary to be built
         if [ $FOUND_BINARIES -eq 0 ]; then
-          echo "❌ No QEMU binaries were built successfully"
+          echo "❌ No QEMU binaries were installed successfully"
           exit 1
         else
-          echo "✅ Found $FOUND_BINARIES QEMU binaries built successfully"
+          echo "✅ Found $FOUND_BINARIES QEMU binaries installed successfully"
         fi
         
     - name: Test 3dfx device availability
       run: |
-        QEMU_BUILD_DIR="build/qemu-9.2.2/build"
+        HOMEBREW_PREFIX=$(brew --prefix)
         
         echo "=== Testing device availability ==="
         
         # Test with i386 if available
-        if [ -f "${QEMU_BUILD_DIR}/qemu-system-i386" ]; then
+        if [ -f "${HOMEBREW_PREFIX}/bin/qemu-system-i386" ]; then
           echo "Testing 3dfx device with qemu-system-i386..."
-          ${QEMU_BUILD_DIR}/qemu-system-i386 -device help | grep -i "3dfx\|glide\|voodoo" || {
+          ${HOMEBREW_PREFIX}/bin/qemu-system-i386 -device help | grep -i "3dfx\|glide\|voodoo" || {
             echo "ℹ️ 3dfx device may require specific parameters"
             echo "Testing with voodoo parameter..."
-            ${QEMU_BUILD_DIR}/qemu-system-i386 -device 3dfx,help 2>/dev/null || true
+            ${HOMEBREW_PREFIX}/bin/qemu-system-i386 -device 3dfx,help 2>/dev/null || true
           }
         else
           echo "⚠️ qemu-system-i386 not available for 3dfx testing"
         fi
         
         # Test Virgl3D support with x86_64 if available
-        if [ -f "${QEMU_BUILD_DIR}/qemu-system-x86_64" ]; then
+        if [ -f "${HOMEBREW_PREFIX}/bin/qemu-system-x86_64" ]; then
           echo "Testing Virgl3D device with qemu-system-x86_64..."
-          ${QEMU_BUILD_DIR}/qemu-system-x86_64 -device help | grep -i "virtio-vga-gl\|virgl" || echo "ℹ️ Virgl3D support not detected"
+          ${HOMEBREW_PREFIX}/bin/qemu-system-x86_64 -device help | grep -i "virtio-vga-gl\|virgl" || echo "ℹ️ Virgl3D support not detected"
         else
           echo "⚠️ qemu-system-x86_64 not available for Virgl3D testing"
         fi
@@ -248,75 +264,122 @@ jobs:
     - name: Create staging directory
       run: |
         STAGE_DIR="staging/qemu-3dfx-${BUILD_DATE}-${COMMIT_SHORT}-darwin-${{ matrix.arch }}"
-        mkdir -p "${STAGE_DIR}/bin"
-        mkdir -p "${STAGE_DIR}/lib"
-        mkdir -p "${STAGE_DIR}/share"
-        mkdir -p "${STAGE_DIR}/sign"
+        mkdir -p "${STAGE_DIR}/opt/homebrew/bin"
+        mkdir -p "${STAGE_DIR}/opt/homebrew/lib"
+        mkdir -p "${STAGE_DIR}/opt/homebrew/share/qemu"
+        mkdir -p "${STAGE_DIR}/opt/homebrew/sign"
+        mkdir -p "${STAGE_DIR}/usr/local/lib"
         
         echo "STAGE_DIR=${STAGE_DIR}" >> $GITHUB_ENV
         
-    - name: Package binaries
+    - name: Package Homebrew installation
       run: |
-        QEMU_BUILD_DIR="build/qemu-9.2.2/build"
+        HOMEBREW_PREFIX=$(brew --prefix)
         
-        # Helper function to copy binary (handles both -unsigned and regular versions)
-        copy_binary() {
-          local binary_name="$1"
-          local unsigned_path="${QEMU_BUILD_DIR}/${binary_name}-unsigned"
-          local regular_path="${QEMU_BUILD_DIR}/${binary_name}"
-          
-          if [ -f "$unsigned_path" ]; then
-            cp "$unsigned_path" "${STAGE_DIR}/bin/${binary_name}"
-            echo "✓ Packaged ${binary_name} (from ${binary_name}-unsigned)"
-          elif [ -f "$regular_path" ]; then
-            cp "$regular_path" "${STAGE_DIR}/bin/"
-            echo "✓ Packaged ${binary_name}"
-          else
-            echo "⚠️ ${binary_name} not found, skipping"
-            return 1
-          fi
-          return 0
-        }
+        echo "=== Packaging QEMU 3dfx Homebrew installation ==="
         
-        # Copy main QEMU binaries (architecture-aware)
-        copy_binary "qemu-system-i386" || true
-        copy_binary "qemu-system-x86_64" || true
-        copy_binary "qemu-img" || true
+        # Copy binaries
+        echo "Copying QEMU binaries..."
+        cp "${HOMEBREW_PREFIX}/bin/qemu-system-"* "${STAGE_DIR}/opt/homebrew/bin/" 2>/dev/null || true
+        cp "${HOMEBREW_PREFIX}/bin/qemu-img" "${STAGE_DIR}/opt/homebrew/bin/" 2>/dev/null || true
         
-        # Only copy ARM64 binary if we're on ARM64 runner (where it was built)
-        if [ "${{ matrix.runner_arch }}" = "arm64" ]; then
-          echo "=== ARM64 runner: packaging ARM target ==="
-          copy_binary "qemu-system-aarch64" || true
-        else
-          echo "=== Intel runner: skipping ARM target (not built) ==="
+        # Copy libraries with proper symlinks
+        echo "Copying and creating library symlinks..."
+        
+        # Copy Glide libraries
+        if [ -f "${HOMEBREW_PREFIX}/lib/libglide2x.0.dylib" ]; then
+          cp "${HOMEBREW_PREFIX}/lib/libglide2x.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          ln -sf "libglide2x.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/libglide2x.dylib"
         fi
         
-        # Copy libraries (look in multiple possible locations)
-        LIB_PATHS=(
-          "build/virglrenderer-install/lib"
-          "${QEMU_BUILD_DIR}"
-          "/opt/homebrew/lib"
-          "/usr/local/lib"
-        )
+        if [ -f "${HOMEBREW_PREFIX}/lib/libglide3x.0.dylib" ]; then
+          cp "${HOMEBREW_PREFIX}/lib/libglide3x.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          ln -sf "libglide3x.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/libglide3x.dylib"
+        fi
         
-        for lib_path in "${LIB_PATHS[@]}"; do
-          if [ -d "$lib_path" ]; then
-            find "$lib_path" -name "libglide*.dylib" -exec cp {} "${STAGE_DIR}/lib/" \; 2>/dev/null || true
-            find "$lib_path" -name "libvirglrenderer*.dylib" -exec cp {} "${STAGE_DIR}/lib/" \; 2>/dev/null || true
-            find "$lib_path" -name "libspice-server*.dylib" -exec cp {} "${STAGE_DIR}/lib/" \; 2>/dev/null || true
+        # Copy VirGL libraries
+        if [ -f "${HOMEBREW_PREFIX}/lib/libvirglrenderer.1.dylib" ]; then
+          cp "${HOMEBREW_PREFIX}/lib/libvirglrenderer.1.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          ln -sf "libvirglrenderer.1.dylib" "${STAGE_DIR}/opt/homebrew/lib/libvirglrenderer.dylib"
+        elif [ -f "${HOMEBREW_PREFIX}/lib/libvirglrenderer.dylib" ]; then
+          cp "${HOMEBREW_PREFIX}/lib/libvirglrenderer.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+        fi
+        
+        # Copy SDL2 library (dependency)
+        if [ -f "${HOMEBREW_PREFIX}/lib/libSDL2-2.0.0.dylib" ]; then
+          cp "${HOMEBREW_PREFIX}/lib/libSDL2-2.0.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          ln -sf "libSDL2-2.0.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/libSDL2.dylib"
+        elif [ -f "${HOMEBREW_PREFIX}/lib/libSDL2.dylib" ]; then
+          cp "${HOMEBREW_PREFIX}/lib/libSDL2.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+        fi
+        
+        # Copy SPICE libraries (these come from spice-server dependency)
+        find "${HOMEBREW_PREFIX}/lib" -name "libspice-server*.dylib" -exec cp {} "${STAGE_DIR}/opt/homebrew/lib/" \; 2>/dev/null || true
+        # Create symlinks for SPICE libraries
+        for spice_lib in "${STAGE_DIR}/opt/homebrew/lib"/libspice-server*.dylib; do
+          if [ -f "$spice_lib" ]; then
+            base_name=$(basename "$spice_lib")
+            if [[ "$base_name" =~ libspice-server\.([0-9]+)\.dylib ]]; then
+              ln -sf "$base_name" "${STAGE_DIR}/opt/homebrew/lib/libspice-server.dylib"
+              break
+            fi
           fi
         done
         
-        # Copy signing script and resources
-        cp scripts/qemu.sign "${STAGE_DIR}/sign/"
+        # Copy QEMU data files (BIOS, ROMs, etc.)
+        echo "Copying QEMU data files..."
+        if [ -d "${HOMEBREW_PREFIX}/share/qemu" ]; then
+          cp -r "${HOMEBREW_PREFIX}/share/qemu/"* "${STAGE_DIR}/opt/homebrew/share/qemu/" 2>/dev/null || true
+        fi
         
-        # Create qemu.rsrc if it doesn't exist (placeholder)
-        if [ ! -f "${STAGE_DIR}/sign/qemu.rsrc" ]; then
-          touch "${STAGE_DIR}/sign/qemu.rsrc"
+        # Copy signing files
+        echo "Copying signing files..."
+        if [ -f "${HOMEBREW_PREFIX}/qemu-3dfx/opt/homebrew/sign/qemu.sign" ]; then
+          cp "${HOMEBREW_PREFIX}/qemu-3dfx/opt/homebrew/sign/qemu.sign" "${STAGE_DIR}/opt/homebrew/sign/"
+        elif [ -f "${HOMEBREW_PREFIX}/sign/qemu.sign" ]; then
+          cp "${HOMEBREW_PREFIX}/sign/qemu.sign" "${STAGE_DIR}/opt/homebrew/sign/"
+        elif [ -f "qemu.sign" ]; then
+          cp "qemu.sign" "${STAGE_DIR}/opt/homebrew/sign/"
+        fi
+        
+        if [ -f "${HOMEBREW_PREFIX}/qemu-3dfx/opt/homebrew/sign/qemu.rsrc" ]; then
+          cp "${HOMEBREW_PREFIX}/qemu-3dfx/opt/homebrew/sign/qemu.rsrc" "${STAGE_DIR}/opt/homebrew/sign/"
+        elif [ -f "${HOMEBREW_PREFIX}/sign/qemu.rsrc" ]; then
+          cp "${HOMEBREW_PREFIX}/sign/qemu.rsrc" "${STAGE_DIR}/opt/homebrew/sign/"
+        elif [ -f "qemu.rsrc" ]; then
+          cp "qemu.rsrc" "${STAGE_DIR}/opt/homebrew/sign/"
         fi
         
         # Update signing script with current commit
-        sed -i '' "s/qemu-3dfx-macos@[a-f0-9]*/qemu-3dfx-macos@${COMMIT_SHORT}/g" "${STAGE_DIR}/sign/qemu.sign"
+        if [ -f "${STAGE_DIR}/opt/homebrew/sign/qemu.sign" ]; then
+          sed -i '' "s/qemu-3dfx-macos@[a-f0-9]*/qemu-3dfx-macos@${COMMIT_SHORT}/g" "${STAGE_DIR}/opt/homebrew/sign/qemu.sign"
+        fi
+        
+        # Create symlinks in /usr/local/lib for compatibility
+        echo "Creating compatibility symlinks..."
+        ln -sf "/opt/homebrew/lib/libglide2x.dylib" "${STAGE_DIR}/usr/local/lib/libglide2x.dylib"
+        ln -sf "/opt/homebrew/lib/libglide3x.dylib" "${STAGE_DIR}/usr/local/lib/libglide3x.dylib"
+        ln -sf "/opt/homebrew/lib/libSDL2.dylib" "${STAGE_DIR}/usr/local/lib/libSDL2.dylib"
+        
+        # Create build info file
+        echo "Creating build information..."
+        echo "QEMU 3dfx Homebrew Package" > "${STAGE_DIR}/build-info.txt"
+        echo "==========================" >> "${STAGE_DIR}/build-info.txt"
+        echo "Build Date: $(date)" >> "${STAGE_DIR}/build-info.txt"
+        echo "Commit: ${COMMIT_SHORT}" >> "${STAGE_DIR}/build-info.txt"
+        echo "QEMU Version: 9.2.2" >> "${STAGE_DIR}/build-info.txt"
+        echo "Target Architecture: ${{ matrix.arch }}" >> "${STAGE_DIR}/build-info.txt"
+        echo "Runner Architecture: ${{ matrix.runner_arch }}" >> "${STAGE_DIR}/build-info.txt"
+        echo "Package Type: Homebrew" >> "${STAGE_DIR}/build-info.txt"
+        echo "Installation Path: /opt/homebrew" >> "${STAGE_DIR}/build-info.txt"
+        echo "Experimental Patches: ${{ github.event.inputs.apply_experimental || 'false' }}" >> "${STAGE_DIR}/build-info.txt"
+        echo "Repository: startergo/qemu-3dfx-macos" >> "${STAGE_DIR}/build-info.txt"
+        
+        # Show package structure
+        echo "=== Package structure ==="
+        find "${STAGE_DIR}" -type f | head -20
+        echo "..."
+        echo "Total files: $(find "${STAGE_DIR}" -type f | wc -l)"
         
     - name: Create distribution tarball
       run: |
@@ -404,10 +467,35 @@ jobs:
         EXTRACTED_DIR=$(ls -d qemu-3dfx-*)
         echo "Extracted directory: ${EXTRACTED_DIR}"
         
-        # Test that binaries exist
-        ls -la "${EXTRACTED_DIR}/bin/"
-        ls -la "${EXTRACTED_DIR}/lib/"
-        ls -la "${EXTRACTED_DIR}/sign/"
+        # Test Homebrew package structure
+        echo "=== Verifying Homebrew package structure ==="
+        ls -la "${EXTRACTED_DIR}/opt/homebrew/bin/" || echo "⚠️ Homebrew bin directory missing"
+        ls -la "${EXTRACTED_DIR}/opt/homebrew/lib/" || echo "⚠️ Homebrew lib directory missing"
+        ls -la "${EXTRACTED_DIR}/opt/homebrew/share/qemu/" || echo "⚠️ Homebrew share/qemu directory missing"
+        ls -la "${EXTRACTED_DIR}/opt/homebrew/sign/" || echo "⚠️ Homebrew sign directory missing"
+        ls -la "${EXTRACTED_DIR}/usr/local/lib/" || echo "⚠️ Compatibility symlinks missing"
+        
+        # Test that binaries exist and are executable
+        if [ -f "${EXTRACTED_DIR}/opt/homebrew/bin/qemu-system-i386" ]; then
+          echo "✅ qemu-system-i386 found"
+          file "${EXTRACTED_DIR}/opt/homebrew/bin/qemu-system-i386"
+        else
+          echo "⚠️ qemu-system-i386 missing"
+        fi
+        
+        # Test library symlinks
+        if [ -L "${EXTRACTED_DIR}/opt/homebrew/lib/libglide2x.dylib" ]; then
+          echo "✅ Glide2x symlink found: $(readlink "${EXTRACTED_DIR}/opt/homebrew/lib/libglide2x.dylib")"
+        else
+          echo "⚠️ Glide2x symlink missing"
+        fi
+        
+        # Test compatibility symlinks
+        if [ -L "${EXTRACTED_DIR}/usr/local/lib/libglide2x.dylib" ]; then
+          echo "✅ Compatibility symlink found: $(readlink "${EXTRACTED_DIR}/usr/local/lib/libglide2x.dylib")"
+        else
+          echo "⚠️ Compatibility symlink missing"
+        fi
         
     - name: Test signing script dependencies
       run: |
@@ -417,16 +505,26 @@ jobs:
         echo "=== Checking signing dependencies ==="
         
         # Test signing script (dry run)
-        cd sign
-        bash -n ./qemu.sign  # Syntax check
-        
-        echo "✅ Signing script syntax is valid"
+        if [ -f "opt/homebrew/sign/qemu.sign" ]; then
+          cd opt/homebrew/sign
+          bash -n ./qemu.sign  # Syntax check
+          echo "✅ Signing script syntax is valid"
+          
+          # Check if qemu.rsrc exists
+          if [ -f "./qemu.rsrc" ]; then
+            echo "✅ qemu.rsrc found"
+          else
+            echo "⚠️ qemu.rsrc missing"
+          fi
+        else
+          echo "⚠️ Signing script not found in package"
+        fi
 
   create-release:
     name: Create Release
     runs-on: macos-latest
     needs: [build, test-installation]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true'
+    if: github.event.inputs.create_release == 'true'
     
     steps:
     - name: Checkout repository
@@ -436,12 +534,6 @@ jobs:
       run: |
         COMMIT_SHORT=$(git rev-parse --short HEAD)
         echo "COMMIT_SHORT=${COMMIT_SHORT}" >> $GITHUB_ENV
-        
-        if [ "${{ github.event_name }}" = "push" ] && [[ "${{ github.ref }}" == refs/tags/* ]]; then
-          echo "RELEASE_TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
-        else
-          echo "RELEASE_TAG=v$(date +%Y%m%d)-${COMMIT_SHORT}" >> $GITHUB_ENV
-        fi
         
     - name: Download all artifacts
       uses: actions/download-artifact@v4
@@ -460,15 +552,17 @@ jobs:
         
     - name: Generate release notes
       run: |
+        RELEASE_TAG="v$(date +%Y%m%d)-${COMMIT_SHORT}"
         cat > release-notes.md << EOF
-        # QEMU 3dfx Release ${RELEASE_TAG}
+        # QEMU 3dfx Homebrew Package ${RELEASE_TAG}
         
-        This release includes QEMU 9.2.2 with 3dfx Glide and Mesa GL pass-through support.
+        This release includes QEMU 9.2.2 with 3dfx Glide and Mesa GL pass-through support, packaged in Homebrew-compatible format.
         
         ## Build Information
         - **Commit**: ${COMMIT_SHORT}
         - **Build Date**: $(date +%Y-%m-%d)
         - **QEMU Version**: 9.2.2
+        - **Package Type**: Homebrew-compatible
         
         ## Supported Architectures
         - macOS ARM64 (Apple Silicon)
@@ -479,13 +573,22 @@ jobs:
         1. Download the appropriate tarball for your architecture
         2. Verify the checksum: \`shasum -a 256 -c <tarball>.sha256\`
         3. Extract with sudo: \`sudo tar --zstd -xf <tarball> -C /\`
-        4. Sign the binaries: \`cd \$(brew --prefix)/sign && bash ./qemu.sign\`
+        4. Sign the binaries: \`cd /opt/homebrew/sign && sudo bash ./qemu.sign\`
+        
+        ## Package Structure
+        
+        The package installs to \`/opt/homebrew\` with the following structure:
+        - \`/opt/homebrew/bin/\` - QEMU binaries
+        - \`/opt/homebrew/lib/\` - 3dfx Glide and VirGL libraries
+        - \`/opt/homebrew/share/qemu/\` - QEMU data files (BIOS, ROMs)
+        - \`/opt/homebrew/sign/\` - Code signing scripts
+        - \`/usr/local/lib/\` - Compatibility symlinks
         
         ## Usage Examples
         
         ### 3dfx Glide Support
         \`\`\`bash
-        qemu-system-i386 \\
+        /opt/homebrew/bin/qemu-system-i386 \\
           -machine pc-i440fx-2.1 \\
           -cpu pentium2 \\
           -m 128 \\
@@ -495,7 +598,7 @@ jobs:
         
         ### Mesa OpenGL Support
         \`\`\`bash
-        qemu-system-x86_64 \\
+        /opt/homebrew/bin/qemu-system-x86_64 \\
           -enable-hvf \\
           -m 2048 \\
           -device virtio-vga-gl \\
@@ -507,14 +610,17 @@ jobs:
         $(ls -la release-assets/ | tail -n +2 | awk '{print "- " $9 " (" $5 " bytes)"}')
         EOF
         
+        # Store the release tag for the next step
+        echo "RELEASE_TAG=${RELEASE_TAG}" >> $GITHUB_ENV
+        
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: ${{ env.RELEASE_TAG }}
-        name: QEMU 3dfx ${{ env.RELEASE_TAG }}
+        tag_name: qemu-3dfx-homebrew-${{ github.run_number }}
+        name: QEMU 3dfx Homebrew Package ${{ github.run_number }}
         body_path: release-notes.md
         files: release-assets/*
         draft: false
-        prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        prerelease: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
