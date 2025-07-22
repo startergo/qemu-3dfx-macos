@@ -7,7 +7,7 @@
 set -e  # Exit on any error
 
 # Configuration
-QEMU_VERSION="9.2.2"
+QEMU_VERSION="${QEMU_VERSION:-9.2.2}"
 QEMU_URL="https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz"
 VIRGLRENDERER_URL="https://gitlab.freedesktop.org/virgl/virglrenderer.git"
 VIRGLRENDERER_BRANCH="main"
@@ -17,6 +17,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
 QEMU_SRC_DIR="${BUILD_DIR}/qemu-${QEMU_VERSION}"
 QEMU_BUILD_DIR="${QEMU_SRC_DIR}/build"
+QEMU_INSTALL_DIR="${BUILD_DIR}/qemu-install/opt/homebrew"
 VIRGL_SRC_DIR="${BUILD_DIR}/virglrenderer"
 VIRGL_BUILD_DIR="${VIRGL_SRC_DIR}/build"
 VIRGL_INSTALL_DIR="${BUILD_DIR}/virglrenderer-install"
@@ -60,6 +61,7 @@ COMMANDS:
     backup-homebrew     Backup Homebrew virglrenderer packages
     restore-homebrew    Restore Homebrew virglrenderer packages
     check-env           Check build environment (for fresh installs)
+    package             Create deployment package with proper structure
     info                Show build information
     help                Show this help message
 
@@ -382,14 +384,38 @@ apply_patches() {
     
     cd "$QEMU_SRC_DIR"
     
-    # Apply KJ's Mesa/Glide patches
-    if [ -f "${PROJECT_ROOT}/00-qemu92x-mesa-glide.patch" ]; then
-        log_info "Applying 00-qemu92x-mesa-glide.patch..."
-        if ! git apply --check "${PROJECT_ROOT}/00-qemu92x-mesa-glide.patch" 2>/dev/null; then
+    # Apply KJ's Mesa/Glide patches based on QEMU version
+    PATCH_FILE=""
+    case "$QEMU_VERSION" in
+        10.0.*|10.1.*|10.2.*)
+            PATCH_FILE="00-qemu100x-mesa-glide.patch"
+            ;;
+        9.2.*)
+            PATCH_FILE="00-qemu92x-mesa-glide.patch"
+            ;;
+        8.2.*)
+            PATCH_FILE="01-qemu82x-mesa-glide.patch"
+            ;;
+        7.2.*)
+            PATCH_FILE="02-qemu72x-mesa-glide.patch"
+            ;;
+        *)
+            log_warning "No specific patch found for QEMU version $QEMU_VERSION, trying 9.2.x patch"
+            PATCH_FILE="00-qemu92x-mesa-glide.patch"
+            ;;
+    esac
+    
+    if [ -f "${PROJECT_ROOT}/${PATCH_FILE}" ]; then
+        log_info "Applying ${PATCH_FILE} for QEMU ${QEMU_VERSION}..."
+        if ! git apply --check "${PROJECT_ROOT}/${PATCH_FILE}" 2>/dev/null; then
             log_warning "Patch may already be applied or conflicts exist"
         else
-            git apply "${PROJECT_ROOT}/00-qemu92x-mesa-glide.patch"
+            git apply "${PROJECT_ROOT}/${PATCH_FILE}"
+            log_success "Applied ${PATCH_FILE} successfully"
         fi
+    else
+        log_error "Patch file ${PATCH_FILE} not found!"
+        return 1
     fi
     
     # Apply Virgl3D patches if available
@@ -404,6 +430,54 @@ apply_patches() {
                 fi
             fi
         done
+    fi
+    
+    # Apply experimental patches if requested
+    if [ "${APPLY_EXPERIMENTAL_PATCHES:-false}" = "true" ]; then
+        log_info "Applying experimental patches..."
+        
+        # Select version-specific SDL clipboard patch
+        SDL_CLIPBOARD_PATCH=""
+        case "$QEMU_VERSION" in
+            10.0.2)
+                SDL_CLIPBOARD_PATCH="${PROJECT_ROOT}/qemu-exp/SDL-Clipboard-10.0.2-fixed.patch"
+                ;;
+            10.0.*)
+                SDL_CLIPBOARD_PATCH="${PROJECT_ROOT}/qemu-exp/SDL-Clipboard.patch"
+                ;;
+            9.2.*)
+                SDL_CLIPBOARD_PATCH="${PROJECT_ROOT}/qemu-exp/SDL-Clipboard-9.2.2.patch"
+                ;;
+        esac
+        
+        # Apply SDL clipboard patch if available
+        if [ -f "$SDL_CLIPBOARD_PATCH" ]; then
+            log_info "Applying experimental SDL-Clipboard patch for QEMU $QEMU_VERSION..."
+            if ! git apply --check "$SDL_CLIPBOARD_PATCH" 2>/dev/null; then
+                log_warning "SDL-Clipboard patch may already be applied or conflicts exist"
+                log_warning "This is experimental - patch may need manual adaptation"
+            else
+                git apply "$SDL_CLIPBOARD_PATCH"
+                log_success "SDL-Clipboard patch applied successfully"
+            fi
+        else
+            log_warning "SDL-Clipboard patch not found for QEMU version $QEMU_VERSION"
+        fi
+        
+        # Apply other experimental patches if available
+        for patch in "${PROJECT_ROOT}/qemu-exp"/*.patch; do
+            if [ -f "$patch" ] && [[ "$(basename "$patch")" != "SDL-Clipboard.patch" ]] && [[ "$(basename "$patch")" != "SDL-Clipboard-9.2.2.patch" ]] && [[ "$(basename "$patch")" != "SDL-Clipboard-10.0.2.patch" ]] && [[ "$(basename "$patch")" != "SDL-Clipboard-10.0.2-fixed.patch" ]]; then
+                log_info "Applying experimental patch: $(basename "$patch")..."
+                if ! git apply --check "$patch" 2>/dev/null; then
+                    log_warning "Experimental patch $(basename "$patch") may already be applied or conflicts exist"
+                else
+                    git apply "$patch"
+                    log_success "Experimental patch $(basename "$patch") applied"
+                fi
+            fi
+        done
+    else
+        log_info "Skipping experimental patches (not requested)"
     fi
     
     # Copy 3dfx and mesa source files
@@ -532,6 +606,7 @@ build_qemu() {
     fi
     
     ../configure \
+        --prefix="${QEMU_INSTALL_DIR}" \
         --target-list="$target_list" \
         --enable-sdl \
         --enable-opengl \
@@ -551,6 +626,13 @@ build_qemu() {
     ninja -j$(( $(nproc 2>/dev/null || echo 4) / 2 ))
     
     log_success "QEMU built successfully"
+    
+    # Install QEMU to the install directory
+    log_info "Installing QEMU to ${QEMU_INSTALL_DIR}..."
+    mkdir -p "${QEMU_INSTALL_DIR}"
+    ninja install
+    
+    log_success "QEMU installed to ${QEMU_INSTALL_DIR}"
     
     # Debug: List what was actually built
     log_info "Built binaries in $(pwd):"
@@ -717,6 +799,155 @@ test_build() {
     log_success "Build tests complete"
 }
 
+# Package QEMU for deployment
+package_qemu() {
+    log_info "Creating deployment package..."
+    
+    if [ ! -f "${QEMU_BUILD_DIR}/qemu-system-i386" ]; then
+        log_error "QEMU binary not found. Run build first."
+        return 1
+    fi
+    
+    # Get Git commit hash for package naming
+    cd "$QEMU_SRC_DIR"
+    COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    
+    # Get architecture
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        arm64|aarch64) ARCH="arm64" ;;
+        x86_64) ARCH="x86_64" ;;
+        *) ARCH="unknown" ;;
+    esac
+    
+    # Package name
+    PACKAGE_NAME="qemu-${QEMU_VERSION}-3dfx-${COMMIT_HASH}-darwin-${ARCH}"
+    PACKAGE_DIR="${BUILD_DIR}/${PACKAGE_NAME}"
+    
+    log_info "Creating package structure: ${PACKAGE_NAME}"
+    
+    # Create directory structure
+    mkdir -p "${PACKAGE_DIR}/opt/homebrew/bin"
+    mkdir -p "${PACKAGE_DIR}/opt/homebrew/lib"
+    mkdir -p "${PACKAGE_DIR}/opt/homebrew/share/qemu"
+    mkdir -p "${PACKAGE_DIR}/opt/homebrew/sign"
+    mkdir -p "${PACKAGE_DIR}/usr/local/lib"
+    
+    # Copy QEMU binaries
+    log_info "Copying QEMU binaries..."
+    cp "${QEMU_BUILD_DIR}/qemu-system-i386" "${PACKAGE_DIR}/opt/homebrew/bin/"
+    cp "${QEMU_BUILD_DIR}/qemu-img" "${PACKAGE_DIR}/opt/homebrew/bin/"
+    
+    # Copy QEMU data files
+    log_info "Copying QEMU data files..."
+    if [ -d "${QEMU_BUILD_DIR}/pc-bios" ]; then
+        cp "${QEMU_BUILD_DIR}/pc-bios"/*.bin "${PACKAGE_DIR}/opt/homebrew/share/qemu/" 2>/dev/null || true
+        cp "${QEMU_BUILD_DIR}/pc-bios"/*.rom "${PACKAGE_DIR}/opt/homebrew/share/qemu/" 2>/dev/null || true
+    fi
+    
+    # Copy homebrew dependencies using otool
+    log_info "Copying Homebrew dependencies..."
+    
+    # Get all homebrew dependencies for main binaries
+    for binary in "${PACKAGE_DIR}/opt/homebrew/bin"/*; do
+        if [ -f "$binary" ]; then
+            log_info "Processing dependencies for $(basename "$binary")..."
+            otool -L "$binary" | grep homebrew | awk '{print $1}' | while read -r lib; do
+                if [ -f "$lib" ]; then
+                    lib_name=$(basename "$lib")
+                    if [ ! -f "${PACKAGE_DIR}/opt/homebrew/lib/${lib_name}" ]; then
+                        log_info "  Copying $lib_name"
+                        cp "$lib" "${PACKAGE_DIR}/opt/homebrew/lib/"
+                    fi
+                fi
+            done
+        fi
+    done
+    
+    # Copy virglrenderer libraries if they exist
+    if [ -d "$VIRGL_INSTALL_DIR/lib" ]; then
+        log_info "Copying virglrenderer libraries..."
+        cp "$VIRGL_INSTALL_DIR/lib"/libvirglrenderer*.dylib "${PACKAGE_DIR}/opt/homebrew/lib/" 2>/dev/null || true
+    fi
+    
+    # Create proper symlinks for libraries
+    log_info "Creating library symlinks..."
+    cd "${PACKAGE_DIR}/opt/homebrew/lib"
+    
+    # Create symlinks for versioned libraries
+    for lib in *.*.dylib; do
+        if [ -f "$lib" ]; then
+            base_name=$(echo "$lib" | sed 's/\.[0-9]*\.dylib$/.dylib/')
+            if [ "$base_name" != "$lib" ] && [ ! -L "$base_name" ]; then
+                ln -sf "$lib" "$base_name"
+                log_info "  Created symlink: $base_name -> $lib"
+            fi
+        fi
+    done
+    
+    # Create symlinks in /usr/local/lib pointing to homebrew
+    log_info "Creating /usr/local/lib symlinks..."
+    cd "${PACKAGE_DIR}/usr/local/lib"
+    
+    # Key libraries that might be needed in /usr/local/lib
+    for lib in libglide2x.dylib libglide3x.dylib libSDL2.dylib; do
+        if [ -f "${PACKAGE_DIR}/opt/homebrew/lib/$lib" ]; then
+            ln -sf "/opt/homebrew/lib/$lib" "$lib"
+            log_info "  Created symlink: $lib -> /opt/homebrew/lib/$lib"
+        fi
+    done
+    
+    # Copy signing resources
+    log_info "Copying signing resources..."
+    if [ -f "${PROJECT_ROOT}/qemu.rsrc" ]; then
+        cp "${PROJECT_ROOT}/qemu.rsrc" "${PACKAGE_DIR}/opt/homebrew/sign/"
+    fi
+    if [ -f "${PROJECT_ROOT}/scripts/qemu.sign" ]; then
+        cp "${PROJECT_ROOT}/scripts/qemu.sign" "${PACKAGE_DIR}/opt/homebrew/sign/"
+    elif [ -f "${PROJECT_ROOT}/qemu.sign" ]; then
+        cp "${PROJECT_ROOT}/qemu.sign" "${PACKAGE_DIR}/opt/homebrew/sign/"
+    fi
+    
+    # Create the compressed package
+    log_info "Creating compressed package..."
+    cd "$BUILD_DIR"
+    
+    # Use zstd if available, otherwise tar.xz
+    if command -v zstd >/dev/null 2>&1; then
+        tar -cf "${PACKAGE_NAME}.tar" "$PACKAGE_NAME"
+        zstd "${PACKAGE_NAME}.tar" -o "${PACKAGE_NAME}.tar.zst"
+        rm "${PACKAGE_NAME}.tar"
+        PACKAGE_FILE="${PACKAGE_NAME}.tar.zst"
+    else
+        tar -cJf "${PACKAGE_NAME}.tar.xz" "$PACKAGE_NAME"
+        PACKAGE_FILE="${PACKAGE_NAME}.tar.xz"
+    fi
+    
+    # Show package information
+    log_success "Package created successfully!"
+    echo
+    echo -e "${GREEN}Package Information:${NC}"
+    echo "  Name: $PACKAGE_NAME"
+    echo "  File: ${BUILD_DIR}/${PACKAGE_FILE}"
+    echo "  Size: $(du -h "${BUILD_DIR}/${PACKAGE_FILE}" | cut -f1)"
+    echo
+    echo -e "${GREEN}Installation Commands:${NC}"
+    echo "  # Extract package:"
+    echo "  sudo tar xf ${PACKAGE_FILE} -C / 2>/dev/null"
+    echo
+    echo "  # Sign binaries (if needed):"
+    echo "  cd \$(brew --prefix)/sign"
+    echo "  bash ./qemu.sign"
+    echo
+    echo -e "${GREEN}Package Contents:${NC}"
+    echo "  Binaries: $(find "${PACKAGE_DIR}/opt/homebrew/bin" -type f | wc -l | tr -d ' ') files"
+    echo "  Libraries: $(find "${PACKAGE_DIR}/opt/homebrew/lib" -name "*.dylib" | wc -l | tr -d ' ') files"
+    echo "  Data files: $(find "${PACKAGE_DIR}/opt/homebrew/share/qemu" -type f | wc -l | tr -d ' ') files"
+    echo "  Symlinks: $(find "${PACKAGE_DIR}" -type l | wc -l | tr -d ' ') links"
+    
+    cd "$SCRIPT_DIR"
+}
+
 # Main build function
 main_build() {
     log_info "Starting QEMU 3dfx/Virgl3D build process..."
@@ -763,6 +994,9 @@ case "${1:-build}" in
         ;;
     test)
         test_build
+        ;;
+    package)
+        package_qemu
         ;;
     help|--help|-h)
         show_help

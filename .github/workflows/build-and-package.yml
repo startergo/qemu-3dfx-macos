@@ -22,6 +22,16 @@ on:
         required: false
         default: false
         type: boolean
+      auto_sign:
+        description: 'Automatically sign binaries during build (requires macOS runners)'
+        required: false
+        default: false
+        type: boolean
+      commit_id:
+        description: 'Specific commit ID to build (leave empty for latest)'
+        required: false
+        default: ''
+        type: string
 
 env:
   HOMEBREW_NO_AUTO_UPDATE: 1
@@ -34,7 +44,7 @@ jobs:
     timeout-minutes: 120  # 2 hour timeout to prevent hanging
     strategy:
       matrix:
-        arch: [arm64, x86_64]
+        arch: ${{ github.event.inputs.target_arch == 'universal' && fromJSON('["arm64", "x86_64"]') || fromJSON(format('["{0}"]', github.event.inputs.target_arch)) }}
         include:
           - arch: arm64
             runner: macos-latest  # ARM64 (Apple Silicon)
@@ -48,16 +58,37 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Full history for commit tracking
+        ref: ${{ github.event.inputs.commit_id != '' && github.event.inputs.commit_id || github.ref }}
         
     - name: Set up environment
       run: |
         echo "BUILD_ARCH=${{ matrix.arch }}" >> $GITHUB_ENV
         echo "RUNNER_ARCH=${{ matrix.runner_arch }}" >> $GITHUB_ENV
         
-        # Generate commit-based identifier
-        COMMIT_SHORT=$(git rev-parse --short HEAD)
+        # Show which commit we're building
+        if [ -n "${{ github.event.inputs.commit_id }}" ]; then
+          echo "🎯 Building specific commit: ${{ github.event.inputs.commit_id }}"
+          # Verify the commit exists and get its short hash
+          COMMIT_SHORT=$(git rev-parse --short "${{ github.event.inputs.commit_id }}")
+          COMMIT_FULL=$(git rev-parse "${{ github.event.inputs.commit_id }}")
+          echo "📋 Full commit hash: ${COMMIT_FULL}"
+        else
+          echo "📦 Building latest commit from current branch"
+          COMMIT_SHORT=$(git rev-parse --short HEAD)
+          COMMIT_FULL=$(git rev-parse HEAD)
+        fi
+        
         echo "COMMIT_SHORT=${COMMIT_SHORT}" >> $GITHUB_ENV
+        echo "COMMIT_FULL=${COMMIT_FULL}" >> $GITHUB_ENV
         echo "BUILD_IDENTIFIER=qemu-3dfx-macos@${COMMIT_SHORT}" >> $GITHUB_ENV
+        
+        # Show commit information
+        echo "=== Commit Information ==="
+        echo "Short hash: ${COMMIT_SHORT}"
+        echo "Full hash: ${COMMIT_FULL}"
+        echo "Commit message: $(git log -1 --pretty=format:'%s' ${COMMIT_FULL})"
+        echo "Author: $(git log -1 --pretty=format:'%an <%ae>' ${COMMIT_FULL})"
+        echo "Date: $(git log -1 --pretty=format:'%cd' ${COMMIT_FULL})"
         
         # Set build timestamp
         BUILD_DATE=$(date +%Y%m%d)
@@ -162,6 +193,16 @@ jobs:
         # Install our custom QEMU 3dfx formula
         echo "Installing QEMU 3dfx via Homebrew formula..."
         cd homebrew-qemu3dfx
+        
+        # Check SPICE dependencies before building
+        echo "=== Checking SPICE dependencies ==="
+        brew list spice-protocol || echo "⚠️ spice-protocol not installed"
+        brew list spice-server || echo "⚠️ spice-server not installed"
+        
+        # Show pkg-config availability for SPICE
+        pkg-config --exists spice-protocol && echo "✅ spice-protocol pkg-config found" || echo "⚠️ spice-protocol pkg-config missing"
+        pkg-config --exists spice-server && echo "✅ spice-server pkg-config found" || echo "⚠️ spice-server pkg-config missing"
+        
         brew install --build-from-source ./Formula/qemu-3dfx.rb
         
         # Verify installation
@@ -173,6 +214,13 @@ jobs:
           echo "❌ QEMU 3dfx signature not found in version output"
           exit 1
         }
+        
+        # Show build configuration summary
+        echo "=== QEMU Build Configuration ==="
+        qemu-system-i386 --version
+        echo ""
+        echo "Checking for SPICE support in binary:"
+        strings $(which qemu-system-i386) | grep -i spice | head -5 || echo "No SPICE strings found in binary"
         
         echo "✅ QEMU 3dfx installed successfully via Homebrew"
         
@@ -206,22 +254,14 @@ jobs:
         # Check core binaries
         check_binary "qemu-system-i386" "(required for 3dfx support)"
         check_binary "qemu-system-x86_64" "(required for modern systems)"
+        check_binary "qemu-system-aarch64" "(ARM virtualization)"
         check_binary "qemu-img" "(disk image utility)"
-        
-        # Check ARM target only on ARM64 runners
-        if [ "${{ matrix.runner_arch }}" = "arm64" ]; then
-          echo "=== ARM64 runner: checking ARM target ==="
-          check_binary "qemu-system-aarch64" "(ARM virtualization)"
-        else
-          echo "=== Intel runner: checking ARM target availability ==="
-          check_binary "qemu-system-aarch64" "(ARM virtualization - may not be built)"
-        fi
         
         # Check libraries
         echo "=== Checking installed libraries ==="
         ls -la "${HOMEBREW_PREFIX}/lib/libglide"* 2>/dev/null || echo "⚠️ Glide libraries not found"
         ls -la "${HOMEBREW_PREFIX}/lib/libvirglrenderer"* 2>/dev/null || echo "⚠️ VirGL libraries not found"
-        ls -la "${HOMEBREW_PREFIX}/lib/libspice-server"* 2>/dev/null || echo "⚠️ SPICE libraries not found"
+        ls -la "${HOMEBREW_PREFIX}/lib/libspice-server"* 2>/dev/null || echo "ℹ️ SPICE libraries not found (optional - may be disabled in build)"
         
         # Check QEMU data files
         echo "=== Checking QEMU data files ==="
@@ -286,45 +326,72 @@ jobs:
         # Copy libraries with proper symlinks
         echo "Copying and creating library symlinks..."
         
-        # Copy Glide libraries
+        # List all available libraries for debugging
+        echo "=== Available libraries in Homebrew prefix ==="
+        ls -la "${HOMEBREW_PREFIX}/lib/" | grep -E "(glide|virgl|spice|SDL2)" || echo "No matching libraries found"
+        
+        # Copy Glide libraries (3dfx support)
         if [ -f "${HOMEBREW_PREFIX}/lib/libglide2x.0.dylib" ]; then
           cp "${HOMEBREW_PREFIX}/lib/libglide2x.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
           ln -sf "libglide2x.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/libglide2x.dylib"
+          echo "✅ Copied Glide2x library"
+        else
+          echo "⚠️ libglide2x.0.dylib not found in ${HOMEBREW_PREFIX}/lib/"
         fi
         
         if [ -f "${HOMEBREW_PREFIX}/lib/libglide3x.0.dylib" ]; then
           cp "${HOMEBREW_PREFIX}/lib/libglide3x.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
           ln -sf "libglide3x.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/libglide3x.dylib"
+          echo "✅ Copied Glide3x library"
+        else
+          echo "⚠️ libglide3x.0.dylib not found in ${HOMEBREW_PREFIX}/lib/"
         fi
         
-        # Copy VirGL libraries
+        # Copy VirGL libraries (Virgl3D support)
         if [ -f "${HOMEBREW_PREFIX}/lib/libvirglrenderer.1.dylib" ]; then
           cp "${HOMEBREW_PREFIX}/lib/libvirglrenderer.1.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
           ln -sf "libvirglrenderer.1.dylib" "${STAGE_DIR}/opt/homebrew/lib/libvirglrenderer.dylib"
+          echo "✅ Copied VirGL library"
         elif [ -f "${HOMEBREW_PREFIX}/lib/libvirglrenderer.dylib" ]; then
           cp "${HOMEBREW_PREFIX}/lib/libvirglrenderer.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          echo "✅ Copied VirGL library (unversioned)"
+        else
+          echo "⚠️ VirGL library not found"
         fi
         
-        # Copy SDL2 library (dependency)
+        # Copy SDL2 library (dependency for display support)
         if [ -f "${HOMEBREW_PREFIX}/lib/libSDL2-2.0.0.dylib" ]; then
           cp "${HOMEBREW_PREFIX}/lib/libSDL2-2.0.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
           ln -sf "libSDL2-2.0.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/libSDL2.dylib"
+          echo "✅ Copied SDL2 library"
         elif [ -f "${HOMEBREW_PREFIX}/lib/libSDL2.dylib" ]; then
           cp "${HOMEBREW_PREFIX}/lib/libSDL2.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          echo "✅ Copied SDL2 library (unversioned)"
+        else
+          echo "⚠️ SDL2 library not found"
         fi
         
         # Copy SPICE libraries (these come from spice-server dependency)
-        find "${HOMEBREW_PREFIX}/lib" -name "libspice-server*.dylib" -exec cp {} "${STAGE_DIR}/opt/homebrew/lib/" \; 2>/dev/null || true
+        echo "Looking for SPICE libraries..."
+        SPICE_FOUND=false
+        find "${HOMEBREW_PREFIX}/lib" -name "libspice-server*.dylib" -exec cp {} "${STAGE_DIR}/opt/homebrew/lib/" \; 2>/dev/null && SPICE_FOUND=true || true
+        
         # Create symlinks for SPICE libraries
         for spice_lib in "${STAGE_DIR}/opt/homebrew/lib"/libspice-server*.dylib; do
           if [ -f "$spice_lib" ]; then
             base_name=$(basename "$spice_lib")
             if [[ "$base_name" =~ libspice-server\.([0-9]+)\.dylib ]]; then
               ln -sf "$base_name" "${STAGE_DIR}/opt/homebrew/lib/libspice-server.dylib"
+              echo "✅ Copied SPICE library: $base_name"
+              SPICE_FOUND=true
               break
             fi
           fi
         done
+        
+        if [ "$SPICE_FOUND" = "false" ]; then
+          echo "ℹ️ SPICE libraries not found (may be disabled in build)"
+        fi
         
         # Copy QEMU data files (BIOS, ROMs, etc.)
         echo "Copying QEMU data files..."
@@ -355,11 +422,12 @@ jobs:
           sed -i '' "s/qemu-3dfx-macos@[a-f0-9]*/qemu-3dfx-macos@${COMMIT_SHORT}/g" "${STAGE_DIR}/opt/homebrew/sign/qemu.sign"
         fi
         
-        # Create symlinks in /usr/local/lib for compatibility
+        # Create symlinks in /usr/local/lib for compatibility (absolute paths)
         echo "Creating compatibility symlinks..."
         ln -sf "/opt/homebrew/lib/libglide2x.dylib" "${STAGE_DIR}/usr/local/lib/libglide2x.dylib"
         ln -sf "/opt/homebrew/lib/libglide3x.dylib" "${STAGE_DIR}/usr/local/lib/libglide3x.dylib"
         ln -sf "/opt/homebrew/lib/libSDL2.dylib" "${STAGE_DIR}/usr/local/lib/libSDL2.dylib"
+        echo "✅ Created compatibility symlinks in /usr/local/lib"
         
         # Create build info file
         echo "Creating build information..."
@@ -367,12 +435,14 @@ jobs:
         echo "==========================" >> "${STAGE_DIR}/build-info.txt"
         echo "Build Date: $(date)" >> "${STAGE_DIR}/build-info.txt"
         echo "Commit: ${COMMIT_SHORT}" >> "${STAGE_DIR}/build-info.txt"
+        echo "Full Commit: ${COMMIT_FULL}" >> "${STAGE_DIR}/build-info.txt"
         echo "QEMU Version: 9.2.2" >> "${STAGE_DIR}/build-info.txt"
         echo "Target Architecture: ${{ matrix.arch }}" >> "${STAGE_DIR}/build-info.txt"
         echo "Runner Architecture: ${{ matrix.runner_arch }}" >> "${STAGE_DIR}/build-info.txt"
         echo "Package Type: Homebrew" >> "${STAGE_DIR}/build-info.txt"
         echo "Installation Path: /opt/homebrew" >> "${STAGE_DIR}/build-info.txt"
         echo "Experimental Patches: ${{ github.event.inputs.apply_experimental || 'false' }}" >> "${STAGE_DIR}/build-info.txt"
+        echo "Auto-signed: ${{ github.event.inputs.auto_sign || 'false' }}" >> "${STAGE_DIR}/build-info.txt"
         echo "Repository: startergo/qemu-3dfx-macos" >> "${STAGE_DIR}/build-info.txt"
         
         # Show package structure
@@ -381,14 +451,52 @@ jobs:
         echo "..."
         echo "Total files: $(find "${STAGE_DIR}" -type f | wc -l)"
         
+    - name: Auto-sign binaries (optional)
+      if: github.event.inputs.auto_sign == 'true'
+      run: |
+        echo "=== Auto-signing QEMU binaries ==="
+        
+        # Change to the signing directory
+        cd "${STAGE_DIR}/opt/homebrew/sign"
+        
+        # Set environment variable for the signing script
+        export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
+        
+        # Run the signing script
+        echo "Running automatic code signing..."
+        bash ./qemu.sign
+        
+        # Verify signatures
+        echo "=== Verifying signatures ==="
+        for binary in ../bin/qemu-*; do
+          if [ -f "$binary" ]; then
+            echo "Checking signature for $(basename "$binary"):"
+            codesign -v "$binary" 2>&1 || echo "  Warning: Signature verification failed"
+            codesign -d -r- "$binary" 2>&1 || echo "  Warning: Could not display requirements"
+          fi
+        done
+        
+        # Check library signatures
+        for lib in ../lib/*.dylib; do
+          if [ -f "$lib" ] && [ ! -L "$lib" ]; then
+            echo "Checking signature for $(basename "$lib"):"
+            codesign -v "$lib" 2>&1 || echo "  Warning: Library signature verification failed"
+          fi
+        done
+        
+        echo "✅ Auto-signing completed"
+        
     - name: Create distribution tarball
       run: |
         cd staging
         
         TARBALL_NAME="qemu-9.2.2-3dfx-${COMMIT_SHORT}-darwin-${{ matrix.arch }}.tar.zst"
         
-        # Create compressed tarball
-        tar -cf - "qemu-3dfx-${BUILD_DATE}-${COMMIT_SHORT}-darwin-${{ matrix.arch }}" | zstd -19 > "${TARBALL_NAME}"
+        # Create compressed tarball from the contents of the staging directory
+        # This ensures the tarball contains opt/ and usr/ at the root level
+        cd "qemu-3dfx-${BUILD_DATE}-${COMMIT_SHORT}-darwin-${{ matrix.arch }}"
+        tar -cf - * | zstd -19 > "../${TARBALL_NAME}"
+        cd ..
         
         echo "TARBALL_NAME=${TARBALL_NAME}" >> $GITHUB_ENV
         echo "TARBALL_PATH=staging/${TARBALL_NAME}" >> $GITHUB_ENV
@@ -418,7 +526,7 @@ jobs:
     needs: build
     strategy:
       matrix:
-        arch: [arm64, x86_64]
+        arch: ${{ github.event.inputs.target_arch == 'universal' && fromJSON('["arm64", "x86_64"]') || fromJSON(format('["{0}"]', github.event.inputs.target_arch)) }}
         include:
           - arch: arm64
             runner: macos-latest  # ARM64 (Apple Silicon)
@@ -428,10 +536,17 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.commit_id != '' && github.event.inputs.commit_id || github.ref }}
       
     - name: Set environment
       run: |
-        COMMIT_SHORT=$(git rev-parse --short HEAD)
+        # Use the same commit logic as the build job
+        if [ -n "${{ github.event.inputs.commit_id }}" ]; then
+          COMMIT_SHORT=$(git rev-parse --short "${{ github.event.inputs.commit_id }}")
+        else
+          COMMIT_SHORT=$(git rev-parse --short HEAD)
+        fi
         echo "COMMIT_SHORT=${COMMIT_SHORT}" >> $GITHUB_ENV
         
     - name: Download build artifacts
@@ -460,46 +575,46 @@ jobs:
         mkdir -p test-install
         cd test-install
         
-        # Extract tarball
+        # Extract tarball - it contains opt/ and usr/ directly at the root
         tar --zstd -xf "../${TARBALL}"
         
-        # Verify extraction
-        EXTRACTED_DIR=$(ls -d qemu-3dfx-*)
-        echo "Extracted directory: ${EXTRACTED_DIR}"
+        # Show what was extracted
+        echo "=== Extracted structure ==="
+        find . -type d | head -10
         
-        # Test Homebrew package structure
+        # Test Homebrew package structure (files are now directly in current directory)
         echo "=== Verifying Homebrew package structure ==="
-        ls -la "${EXTRACTED_DIR}/opt/homebrew/bin/" || echo "⚠️ Homebrew bin directory missing"
-        ls -la "${EXTRACTED_DIR}/opt/homebrew/lib/" || echo "⚠️ Homebrew lib directory missing"
-        ls -la "${EXTRACTED_DIR}/opt/homebrew/share/qemu/" || echo "⚠️ Homebrew share/qemu directory missing"
-        ls -la "${EXTRACTED_DIR}/opt/homebrew/sign/" || echo "⚠️ Homebrew sign directory missing"
-        ls -la "${EXTRACTED_DIR}/usr/local/lib/" || echo "⚠️ Compatibility symlinks missing"
+        ls -la "opt/homebrew/bin/" || echo "⚠️ Homebrew bin directory missing"
+        ls -la "opt/homebrew/lib/" || echo "⚠️ Homebrew lib directory missing"
+        ls -la "opt/homebrew/share/qemu/" || echo "⚠️ Homebrew share/qemu directory missing"
+        ls -la "opt/homebrew/sign/" || echo "⚠️ Homebrew sign directory missing"
+        ls -la "usr/local/lib/" || echo "⚠️ Compatibility symlinks missing"
         
         # Test that binaries exist and are executable
-        if [ -f "${EXTRACTED_DIR}/opt/homebrew/bin/qemu-system-i386" ]; then
+        if [ -f "opt/homebrew/bin/qemu-system-i386" ]; then
           echo "✅ qemu-system-i386 found"
-          file "${EXTRACTED_DIR}/opt/homebrew/bin/qemu-system-i386"
+          file "opt/homebrew/bin/qemu-system-i386"
         else
           echo "⚠️ qemu-system-i386 missing"
         fi
         
         # Test library symlinks
-        if [ -L "${EXTRACTED_DIR}/opt/homebrew/lib/libglide2x.dylib" ]; then
-          echo "✅ Glide2x symlink found: $(readlink "${EXTRACTED_DIR}/opt/homebrew/lib/libglide2x.dylib")"
+        if [ -L "opt/homebrew/lib/libglide2x.dylib" ]; then
+          echo "✅ Glide2x symlink found: $(readlink "opt/homebrew/lib/libglide2x.dylib")"
         else
           echo "⚠️ Glide2x symlink missing"
         fi
         
         # Test compatibility symlinks
-        if [ -L "${EXTRACTED_DIR}/usr/local/lib/libglide2x.dylib" ]; then
-          echo "✅ Compatibility symlink found: $(readlink "${EXTRACTED_DIR}/usr/local/lib/libglide2x.dylib")"
+        if [ -L "usr/local/lib/libglide2x.dylib" ]; then
+          echo "✅ Compatibility symlink found: $(readlink "usr/local/lib/libglide2x.dylib")"
         else
           echo "⚠️ Compatibility symlink missing"
         fi
         
     - name: Test signing script dependencies
       run: |
-        cd artifacts/test-install/qemu-3dfx-*
+        cd artifacts/test-install
         
         # Check if signing dependencies are available
         echo "=== Checking signing dependencies ==="
@@ -529,10 +644,17 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.commit_id != '' && github.event.inputs.commit_id || github.ref }}
       
     - name: Set environment
       run: |
-        COMMIT_SHORT=$(git rev-parse --short HEAD)
+        # Use the same commit logic as the build job
+        if [ -n "${{ github.event.inputs.commit_id }}" ]; then
+          COMMIT_SHORT=$(git rev-parse --short "${{ github.event.inputs.commit_id }}")
+        else
+          COMMIT_SHORT=$(git rev-parse --short HEAD)
+        fi
         echo "COMMIT_SHORT=${COMMIT_SHORT}" >> $GITHUB_ENV
         
     - name: Download all artifacts
@@ -573,7 +695,9 @@ jobs:
         1. Download the appropriate tarball for your architecture
         2. Verify the checksum: \`shasum -a 256 -c <tarball>.sha256\`
         3. Extract with sudo: \`sudo tar --zstd -xf <tarball> -C /\`
-        4. Sign the binaries: \`cd /opt/homebrew/sign && sudo bash ./qemu.sign\`
+        4. **If not auto-signed**: Sign the binaries: \`cd /opt/homebrew/sign && sudo bash ./qemu.sign\`
+        
+        > **Note**: Auto-signed packages are ready to use immediately after extraction.
         
         ## Package Structure
         

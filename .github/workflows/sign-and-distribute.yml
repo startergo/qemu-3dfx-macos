@@ -1,4 +1,4 @@
-name: Sign and Distribute QEMU 3dfx
+name: Test and Validate Distribution
 
 on:
   workflow_run:
@@ -84,7 +84,7 @@ jobs:
         fi
 
   sign-and-test:
-    name: Sign and Test Distribution (${{ matrix.arch }})
+    name: Test Distribution (${{ matrix.arch }})
     runs-on: macos-latest
     needs: determine-architecture
     strategy:
