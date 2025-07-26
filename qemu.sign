@@ -57,7 +57,7 @@ fi
 
 # Fallback to static hash if git not available
 if [ -z "$GIT_HASH" ]; then
-    GIT_HASH="e5562fa"
+    GIT_HASH="2ed207b"
     echo "Warning: Git repository not found, using fallback hash: $GIT_HASH"
 fi
 

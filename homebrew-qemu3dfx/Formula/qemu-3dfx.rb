@@ -5,7 +5,7 @@ class Qemu3dfx < Formula
   version "9.2.2-3dfx"
   sha256 "752eaeeb772923a73d536b231e05bcc09c9b1f51690a41ad9973d900e4ec9fbf"
   license "GPL-2.0-or-later"
-  revision 25
+  revision 26
 
   head "https://github.com/startergo/qemu-3dfx-macos.git", branch: "master"
 
@@ -34,7 +34,8 @@ class Qemu3dfx < Formula
   
   # Additional dependencies for full functionality
   depends_on "libffi"         # Used by GLib
-  depends_on "pixman"         # Required for QEMU graphics
+  depends_on "ncurses"        # Required for --enable-curses
+  depends_on "pixman"         # Required for QEMU graphics (will be redirected to XQuartz via script)
   depends_on "sdl2_image"     # Image format support
   
   # SPICE protocol support
@@ -56,12 +57,19 @@ class Qemu3dfx < Formula
   end
 
   def install
+    # IMPORTANT: Run the XQuartz pkg-config redirection script BEFORE building:
+    #   bash /Users/macbookpro/qemu-3dfx-1/fix-pkgconfig-to-xquartz.sh
+    # This redirects pixman and libpng to use XQuartz instead of Homebrew versions
+
     # Set up build environment (minimal, matching build script)
     ENV["PKG_CONFIG_PATH"] = "#{HOMEBREW_PREFIX}/lib/pkgconfig"
 
     # Add libepoxy path specifically (essential for OpenGL)
     epoxy_path = Dir["#{HOMEBREW_PREFIX}/Cellar/libepoxy/*/lib/pkgconfig"].first
     ENV["PKG_CONFIG_PATH"] = "#{epoxy_path}:#{ENV["PKG_CONFIG_PATH"]}" if epoxy_path
+
+    # Skip X11 header setup since we're using pkg-config redirection to XQuartz
+    # setup_x11_headers_for_mesa
 
     # Build virglrenderer first with macOS patches
     resource("virglrenderer").stage do
@@ -151,8 +159,14 @@ class Qemu3dfx < Formula
     # Debug: Show patches applied
     ohai "3dfx patches application completed"
 
-    # Configure QEMU (using exact same minimal options as working build script)
+    # Configure QEMU (following upstream build sequence: mkdir ../build && cd ../build)
+    # Upstream: ../qemu-9.2.2/configure --target-list=i386-softmmu --prefix=$(pwd)/../install_dir
+    ohai "Creating separate build directory (upstream sequence: mkdir ../build && cd ../build)"
+    
     mkdir "build" do
+      ohai "Configuring QEMU from build directory (upstream: ../qemu-9.2.2/configure)..."
+      ohai "Using configure options based on upstream but with full target list"
+      
       system "../configure",
              "--prefix=#{prefix}",
              "--target-list=i386-softmmu,x86_64-softmmu,aarch64-softmmu",
@@ -162,7 +176,7 @@ class Qemu3dfx < Formula
              "--enable-virglrenderer",
              "--disable-gtk",
              "--disable-dbus-display",
-             "--disable-curses",
+             "--enable-curses",
              "--enable-vnc",
              "--enable-spice",
              "--enable-hvf",
@@ -171,14 +185,18 @@ class Qemu3dfx < Formula
              "--disable-docs"
              # Note: Intentionally minimal - QEMU will auto-detect available features
 
+      ohai "Building and installing QEMU 3dfx (upstream: make install)..."
       system "ninja"
       system "ninja", "install"
     end
 
+    # Copy 3dfx wrapper sources for manual building
+    copy_3dfx_wrapper_sources
+
     # Build host-side 3dfx libraries for QEMU
     build_host_3dfx_libraries
 
-    # Create version info
+    # Copy version info
     (prefix/"VERSION").write("#{version}-#{revision}")
   end
 
@@ -223,18 +241,67 @@ class Qemu3dfx < Formula
 
   def apply_3dfx_patches
     ohai "=== Starting apply_3dfx_patches function ==="
+    ohai "Following upstream qemu-3dfx build sequence exactly:"
+    ohai "1. Copy 3dfx/mesa source files (rsync -r ../qemu-0/hw/3dfx ../qemu-1/hw/mesa ./hw/)"
+    ohai "2. Apply 3dfx Mesa/Glide patch (patch -p0 -i ../00-qemu92x-mesa-glide.patch)"
+    ohai "3. Run sign_commit script (bash ../scripts/sign_commit)"
     
-    # Apply KJ's Mesa/Glide patches with dynamic path fixing
+    # Step 1: Copy 3dfx and mesa source files FIRST (matching upstream rsync command)
+    # Upstream: rsync -r ../qemu-0/hw/3dfx ../qemu-1/hw/mesa ./hw/
+    qemu0_hw = "#{__dir__}/../../qemu-0/hw"
+    qemu1_hw = "#{__dir__}/../../qemu-1/hw"
+
+    mkdir_p "hw"
+    
+    if Dir.exist?("#{qemu0_hw}/3dfx")
+      ohai "Step 1a: Copying 3dfx hardware files (upstream: ../qemu-0/hw/3dfx)"
+      cp_r "#{qemu0_hw}/3dfx", "hw/"
+    else
+      ohai "Warning: 3dfx directory not found at #{qemu0_hw}/3dfx"
+    end
+
+    if Dir.exist?("#{qemu1_hw}/mesa")
+      ohai "Step 1b: Copying Mesa hardware files (upstream: ../qemu-1/hw/mesa)"
+      cp_r "#{qemu1_hw}/mesa", "hw/"
+    else
+      ohai "Warning: Mesa directory not found at #{qemu1_hw}/mesa"
+    end
+
+    # Step 2: Apply KJ's Mesa/Glide patches (patch -p0 -i ../00-qemu92x-mesa-glide.patch)
     patch_file = "#{__dir__}/../../00-qemu92x-mesa-glide.patch"
-    ohai "Looking for patch file at: #{patch_file}"
+    ohai "Step 2: Looking for patch file at: #{patch_file}"
     
     if File.exist?(patch_file)
-      ohai "Applying QEMU 3dfx Mesa/Glide patch"
-      apply_patch_with_path_fixing(patch_file)
+      ohai "Step 2: Applying QEMU 3dfx Mesa/Glide patch with -p0 (upstream sequence)"
+      # Use -p0 to match upstream build sequence exactly: patch -p0 -i ../00-qemu92x-mesa-glide.patch
+      system "patch", "-p0", "-i", patch_file
     else
       ohai "3dfx patch file not found at: #{patch_file}"
     end
 
+    # Step 3: Sign commit (bash ../scripts/sign_commit) - this is essential for 3dfx functionality
+    sign_script = "#{__dir__}/../../scripts/sign_commit"
+    if File.exist?(sign_script)
+      ohai "Step 3: Running sign_commit script (upstream sequence: bash ../scripts/sign_commit)"
+      # The sign_commit script embeds git commit info from the qemu-3dfx repository
+      # and ensures proper signature matching between QEMU and 3dfx drivers
+      repo_dir = File.expand_path("../..", __dir__)
+      
+      # Get commit ID for naming and signing
+      commit_id = `cd #{repo_dir} && git rev-parse --short HEAD`.strip
+      
+      ohai "Using commit ID: #{commit_id}"
+      
+      # Export commit ID for binary signing process
+      ENV["QEMU_3DFX_COMMIT"] = commit_id
+      
+      # Run sign_commit matching upstream: bash ../scripts/sign_commit
+      system "bash", sign_script, "-git=#{repo_dir}", "-commit=#{commit_id}", "HEAD"
+    else
+      ohai "Warning: sign_commit script not found - 3dfx drivers may not load properly"
+    end
+
+    # Additional patches for macOS compatibility (after main 3dfx patches)
     # Apply Virgl3D patches for QEMU (SDL2+OpenGL compatibility on macOS)
     virgl_patches_dir = "#{__dir__}/../../virgil3d"
     if Dir.exist?(virgl_patches_dir)
@@ -254,51 +321,8 @@ class Qemu3dfx < Formula
                 "warning('epoxy/egl.h not found - EGL disabled')"
     end
 
-    # Copy 3dfx and mesa source files (matching original rsync command)
-    # Original: rsync -r ../qemu-0/hw/3dfx ../qemu-1/hw/mesa ./hw/
-    qemu0_hw = "#{__dir__}/../../qemu-0/hw"
-    qemu1_hw = "#{__dir__}/../../qemu-1/hw"
-
-    mkdir_p "hw"
-    
-    if Dir.exist?("#{qemu0_hw}/3dfx")
-      ohai "Copying 3dfx hardware files from qemu-0/hw/3dfx"
-      cp_r "#{qemu0_hw}/3dfx", "hw/"
-    else
-      ohai "Warning: 3dfx directory not found at #{qemu0_hw}/3dfx"
-    end
-
-    if Dir.exist?("#{qemu1_hw}/mesa")
-      ohai "Copying Mesa hardware files from qemu-1/hw/mesa"
-      cp_r "#{qemu1_hw}/mesa", "hw/"
-    else
-      ohai "Warning: Mesa directory not found at #{qemu1_hw}/mesa"
-    end
-
     # Apply GL_CONTEXTALPHA fix
     inreplace "hw/mesa/mglcntx_linux.c", "GL_CONTEXTALPHA", "GLX_ALPHA_SIZE" if File.exist?("hw/mesa/mglcntx_linux.c")
-
-    # Sign commit if script exists - this is essential for 3dfx functionality
-    sign_script = "#{__dir__}/../../scripts/sign_commit"
-    if File.exist?(sign_script)
-      ohai "Running sign_commit script (required for 3dfx driver compatibility)"
-      # The sign_commit script embeds git commit info from the qemu-3dfx repository
-      # and ensures proper signature matching between QEMU and 3dfx drivers
-      repo_dir = File.expand_path("../..", __dir__)
-      
-      # Get commit ID for naming and signing
-      commit_id = `cd #{repo_dir} && git rev-parse --short HEAD`.strip
-      
-      ohai "Using commit ID: #{commit_id}"
-      
-      # Export commit ID for binary signing process
-      ENV["QEMU_3DFX_COMMIT"] = commit_id
-      
-      # Run sign_commit with the commit ID
-      system "bash", sign_script, "-git=#{repo_dir}", "-commit=#{commit_id}", "HEAD"
-    else
-      ohai "Warning: sign_commit script not found - 3dfx drivers may not load properly"
-    end
   end
 
   def apply_patch_with_path_fixing(patch_file)
@@ -333,6 +357,27 @@ class Qemu3dfx < Formula
       # Apply patch directly if no fixing needed
       system "git", "apply", patch_file
     end
+  end
+
+  def copy_3dfx_wrapper_sources
+    wrappers_dir = "#{__dir__}/../../wrappers"
+    return unless Dir.exist?(wrappers_dir)
+
+    ohai "Copying 3dfx wrapper sources for manual building..."
+    
+    # Copy wrapper source files to share directory for manual building
+    wrappers_share_dir = "#{prefix}/share/qemu-3dfx/wrappers"
+    mkdir_p wrappers_share_dir
+    
+    # Copy all wrapper source files (from original source)
+    cp_r "#{wrappers_dir}/.", wrappers_share_dir
+    ohai "Copied wrapper sources to #{wrappers_share_dir}/"
+    
+    # Copy signing files to match original structure
+    copy_signing_files
+    
+    ohai "3dfx wrapper sources available for manual cross-compilation"
+    ohai "Requires: mingw32, Open-Watcom, i586-pc-msdosdjgpp toolchains"
   end
 
   def build_host_3dfx_libraries
@@ -557,7 +602,107 @@ class Qemu3dfx < Formula
     ohai "If system symlinks couldn't be created, run: sudo #{setup_script}"
   end
 
-  def test
+  def setup_x11_headers_for_mesa
+    # Setup X11 headers for Mesa GL compilation (matching GitHub Actions workflow)
+    ohai "Setting up X11 headers for Mesa GL compilation..."
+    
+    # Create local X11 directory structure in our build prefix
+    local_x11_include = "#{buildpath}/local-x11-headers"
+    mkdir_p "#{local_x11_include}/X11/extensions"
+    mkdir_p "#{local_x11_include}/GL"
+    mkdir_p "#{local_x11_include}/KHR"
+    
+    # Copy X11 extension headers from Homebrew (needed for Mesa GL compilation)
+    homebrew_x11_include = "#{HOMEBREW_PREFIX}/include/X11"
+    if Dir.exist?(homebrew_x11_include)
+      ohai "Copying X11 headers from Homebrew to local build directory"
+      # Copy the entire X11 directory structure
+      cp_r homebrew_x11_include, "#{local_x11_include}/"
+    end
+    
+    # Copy X11 extension headers from XQuartz (essential for Mesa GL compilation)
+    # XQuartz has the complete X11 headers including extensions like xf86vmode.h
+    if Dir.exist?("/opt/X11/include/X11")
+      ohai "Copying X11 extension headers from XQuartz (overwriting Homebrew headers)"
+      # Remove existing X11 directory first to avoid conflicts
+      rm_rf "#{local_x11_include}/X11" if Dir.exist?("#{local_x11_include}/X11")
+      # Copy complete X11 headers from XQuartz, including extensions directory
+      cp_r "/opt/X11/include/X11", "#{local_x11_include}/"
+    end
+    
+    # Copy OpenGL headers from XQuartz
+    if Dir.exist?("/opt/X11/include/GL")
+      ohai "Copying OpenGL headers from XQuartz"
+      cp_r "/opt/X11/include/GL", "#{local_x11_include}/"
+    end
+    
+    # Copy KHR platform headers from XQuartz (required by OpenGL headers)
+    if Dir.exist?("/opt/X11/include/KHR")
+      ohai "Copying KHR platform headers from XQuartz"
+      cp_r "/opt/X11/include/KHR", "#{local_x11_include}/"
+    end
+    
+    # Add our local headers to the include path
+    ENV.append "CPPFLAGS", "-I#{local_x11_include}"
+    ENV.append "CFLAGS", "-I#{local_x11_include}"
+    ENV.append "CXXFLAGS", "-I#{local_x11_include}"
+    
+    # Add GLX library linking for Mesa GL support (from XQuartz)
+    ENV.append "LDFLAGS", "-L/opt/X11/lib"
+    ENV.append "LIBS", "-lGL -lX11"
+    
+    # Ensure XQuartz's libGL comes first in the search path (contains GLX functions)
+    ENV.prepend "LDFLAGS", "-L/opt/X11/lib"
+    
+    # Add XQuartz paths to dynamic linker fallback (critical for macOS)
+    # This addresses the issue where XQuartz libraries aren't found by the dynamic linker
+    ENV["DYLD_FALLBACK_LIBRARY_PATH"] = "#{ENV["DYLD_FALLBACK_LIBRARY_PATH"]}:/opt/X11/lib:/usr/X11/lib:/usr/lib"
+    
+    # Also add to library path for build-time linking
+    ENV.append "LIBRARY_PATH", "/opt/X11/lib:/usr/X11/lib"
+    
+    # Force linking to XQuartz's GL library specifically (instead of Homebrew's Mesa)
+    ENV.append "LDFLAGS", "/opt/X11/lib/libGL.dylib"
+    
+    # Verify the headers are available
+    ohai "Verifying X11 and GL headers setup:"
+    if File.exist?("#{local_x11_include}/X11/extensions/xf86vmode.h")
+      ohai "✅ xf86vmode.h found"
+    else
+      ohai "⚠️ xf86vmode.h missing"
+    end
+    
+    if File.exist?("#{local_x11_include}/GL/glcorearb.h")
+      ohai "✅ GL/glcorearb.h found"
+    else
+      ohai "⚠️ GL/glcorearb.h missing"
+    end
+    
+    if File.exist?("#{local_x11_include}/KHR/khrplatform.h")
+      ohai "✅ KHR/khrplatform.h found"
+    else
+      ohai "⚠️ KHR/khrplatform.h missing"
+    end
+  end
+
+  def copy_signing_files
+    # Copy qemu.rsrc and qemu.sign to match original structure
+    sign_dir = "#{prefix}/sign"
+    mkdir_p sign_dir
+    
+    rsrc_file = "#{__dir__}/../../qemu.rsrc"
+    sign_file = "#{__dir__}/../../qemu.sign"
+    
+    if File.exist?(rsrc_file)
+      cp rsrc_file, "#{sign_dir}/qemu.rsrc"
+      ohai "Copied qemu.rsrc to #{sign_dir}/"
+    end
+    
+    if File.exist?(sign_file)
+      cp sign_file, "#{sign_dir}/qemu.sign"
+      ohai "Copied qemu.sign to #{sign_dir}/"
+    end
+  end
 
   test do
     # Test version and 3dfx signature

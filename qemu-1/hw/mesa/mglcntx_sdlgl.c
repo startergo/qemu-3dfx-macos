@@ -787,4 +787,119 @@ void MGLFuncHandler(const char *name)
     argsp[0] = 0;
 }
 
+/* Missing function implementations for SDL version */
+
+void MGLActivateHandler(const int active, const int mouse)
+{
+    /* SDL implementation - no specific activation needed */
+    (void)active;
+    (void)mouse;
+}
+
+void MGLCursorDefine(int width, int height, int hotx, int hoty, const void *pixels)
+{
+    /* SDL implementation - basic cursor support */
+    (void)width;
+    (void)height;
+    (void)hotx;
+    (void)hoty;
+    (void)pixels;
+}
+
+void MGLMouseWarp(const uint32_t pos)
+{
+    /* SDL implementation - warp mouse to coordinates */
+    /* pos typically contains x and y packed into a uint32_t */
+    int x = pos & 0xFFFF;
+    int y = (pos >> 16) & 0xFFFF;
+    (void)x;
+    (void)y;
+    /* Could implement: SDL_WarpMouseInWindow(window, x, y); */
+}
+
+int find_xstr(const char *xstr, const char *str)
+{
+#define MAX_XSTR 128
+    int nbuf, ret = 0;
+    char *xbuf, *stok;
+    if (xstr) {
+        size_t slen = strnlen(str, MAX_XSTR);
+        nbuf = strnlen(xstr, 3*4096);
+        xbuf = g_new(char, nbuf + 1);
+        strncpy(xbuf, xstr, nbuf + 1);
+        stok = strtok(xbuf, " ");
+        while (stok) {
+            size_t xlen = strnlen(stok, MAX_XSTR);
+            if ((slen == xlen) && !strncmp(stok, str, xlen)) {
+                ret = 1;
+                break;
+            }
+            stok = strtok(NULL, " ");
+        }
+        g_free(xbuf);
+    }
+    return ret;
+}
+
+typedef struct {
+    uint64_t last;
+    uint32_t fcount;
+    float ftime;
+} STATSFX, * PSTATSFX;
+
+static STATSFX fxstats = { .last = 0 };
+
+static void profile_dump(void)
+{
+    PSTATSFX p = &fxstats;
+    if (p->last) {
+	p->last = 0;
+	fprintf(stderr, "%-4u frames in %-4.1f seconds, %-4.1f FPS%-8s\r", p->fcount, p->ftime, (p->fcount / p->ftime), " ");
+        fflush(stderr);
+    }
+}
+
+static void profile_last(void)
+{
+    PSTATSFX p = &fxstats;
+    if (p->last) {
+	p->last = 0;
+	fprintf(stderr, "%-64s\r", " ");
+    }
+}
+
+#ifndef NANOSECONDS_PER_SECOND
+#define NANOSECONDS_PER_SECOND get_ticks_per_sec()
+#endif
+
+static void profile_stat(void)
+{
+    uint64_t curr;
+    int i;
+
+    PSTATSFX p = &fxstats;
+
+    if (p->last == 0) {
+	p->fcount = 0;
+	p->ftime = 0;
+	p->last = (mesa_gui_fullscreen(0))? 0:get_clock();
+	return;
+    }
+
+    curr = get_clock();
+    p->fcount++;
+    p->ftime += (curr - p->last) * (1.0f /  NANOSECONDS_PER_SECOND);
+    p->last = curr;
+
+    i = (GLFifoTrace() || GLFuncTrace() || GLShaderDump() || GLCheckError())? 0:((int) p->ftime);
+    if (i && ((i % 5) == 0))
+	profile_dump();
+}
+
+void mesastat(PPERFSTAT s)
+{
+    s->stat = &profile_stat;
+    s->last = &profile_last;
+}
+
 #endif //MESAGL_SDLGL
