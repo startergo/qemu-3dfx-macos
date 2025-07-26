@@ -48,22 +48,32 @@ jobs:
           - arch: arm64
             runner: macos-latest  # ARM64 (Apple Silicon)
             runner_arch: arm64
-            should_run: ${{ github.event.inputs.target_arch == 'universal' || github.event.inputs.target_arch == 'arm64' }}
           - arch: x86_64
             runner: macos-13      # Intel x86_64
             runner_arch: x86_64
-            should_run: ${{ github.event.inputs.target_arch == 'universal' || github.event.inputs.target_arch == 'x86_64' }}
-        exclude:
-          - should_run: false
     
     steps:
+    - name: Check if this architecture should run
+      id: should_run
+      run: |
+        if [[ "${{ github.event.inputs.target_arch }}" == "universal" ]] || 
+           [[ "${{ github.event.inputs.target_arch }}" == "${{ matrix.arch }}" ]]; then
+          echo "should_run=true" >> $GITHUB_OUTPUT
+          echo "✅ Building ${{ matrix.arch }} architecture"
+        else
+          echo "should_run=false" >> $GITHUB_OUTPUT
+          echo "⏭️ Skipping ${{ matrix.arch }} architecture (not selected)"
+        fi
+        
     - name: Checkout repository
+      if: steps.should_run.outputs.should_run == 'true'
       uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Full history for commit tracking
         ref: ${{ github.event.inputs.commit_id != '' && github.event.inputs.commit_id || github.ref }}
         
     - name: Set up environment
+      if: steps.should_run.outputs.should_run == 'true'
       run: |
         echo "BUILD_ARCH=${{ matrix.arch }}" >> $GITHUB_ENV
         echo "RUNNER_ARCH=${{ matrix.runner_arch }}" >> $GITHUB_ENV
@@ -98,6 +108,7 @@ jobs:
         echo "BUILD_DATE=${BUILD_DATE}" >> $GITHUB_ENV
         
     - name: Install build dependencies
+      if: steps.should_run.outputs.should_run == 'true'
       run: |
         # Install Xcode command line tools dependencies
         xcode-select --install 2>/dev/null || true
@@ -152,6 +163,7 @@ jobs:
         brew install xorgproto libxxf86vm  # X11 extension headers including xf86vmode.h
         
     - name: Setup X11 headers for Mesa GL support
+      if: steps.should_run.outputs.should_run == 'true'
       run: |
         # Create X11 directory structure for Mesa headers
         sudo mkdir -p /usr/local/include/X11/extensions
@@ -180,6 +192,7 @@ jobs:
         echo "Headers setup complete"
         
     - name: Build QEMU 3dfx with Homebrew
+      if: steps.should_run.outputs.should_run == 'true'
       run: |
         # Set commit identity for the sign_commit script
         export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
@@ -228,6 +241,7 @@ jobs:
         echo "✅ QEMU 3dfx installed successfully via Homebrew"
         
     - name: Verify build
+      if: steps.should_run.outputs.should_run == 'true'
       run: |
         # Check Homebrew installation paths
         HOMEBREW_PREFIX=$(brew --prefix)
@@ -279,6 +293,7 @@ jobs:
         fi
         
     - name: Test 3dfx device availability
+      if: steps.should_run.outputs.should_run == 'true'
       run: |
         HOMEBREW_PREFIX=$(brew --prefix)
         
@@ -305,6 +320,7 @@ jobs:
         fi
         
     - name: Create staging directory
+      if: steps.should_run.outputs.should_run == 'true'
       run: |
         STAGE_DIR="staging/qemu-3dfx-${BUILD_DATE}-${COMMIT_SHORT}-darwin-${{ matrix.arch }}"
         mkdir -p "${STAGE_DIR}/opt/homebrew/bin"
@@ -316,6 +332,7 @@ jobs:
         echo "STAGE_DIR=${STAGE_DIR}" >> $GITHUB_ENV
         
     - name: Package Homebrew installation
+      if: steps.should_run.outputs.should_run == 'true'
       run: |
         HOMEBREW_PREFIX=$(brew --prefix)
         
@@ -455,7 +472,7 @@ jobs:
         echo "Total files: $(find "${STAGE_DIR}" -type f | wc -l)"
         
     - name: Auto-sign binaries (optional)
-      if: github.event.inputs.auto_sign == 'true'
+      if: steps.should_run.outputs.should_run == 'true' && github.event.inputs.auto_sign == 'true'
       run: |
         echo "=== Auto-signing QEMU binaries ==="
         
@@ -490,6 +507,7 @@ jobs:
         echo "✅ Auto-signing completed"
         
     - name: Create distribution tarball
+      if: steps.should_run.outputs.should_run == 'true'
       run: |
         cd staging
         
@@ -508,6 +526,7 @@ jobs:
         shasum -a 256 "${TARBALL_NAME}" > "${TARBALL_NAME}.sha256"
         
     - name: Upload build artifacts
+      if: steps.should_run.outputs.should_run == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: qemu-3dfx-${{ matrix.arch }}-${{ github.sha }}
@@ -517,6 +536,7 @@ jobs:
         retention-days: 30
         
     - name: Upload staging directory for testing
+      if: steps.should_run.outputs.should_run == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: qemu-3dfx-staging-${{ matrix.arch }}-${{ github.sha }}
