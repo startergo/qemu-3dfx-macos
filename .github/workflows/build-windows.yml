@@ -1,10 +1,6 @@
 name: Build QEMU-3dfx for Windows
 
 on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
   workflow_dispatch:
     inputs:
       apply_experimental:
