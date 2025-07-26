@@ -194,7 +194,7 @@ jobs:
           cd ../install_dir
           
           echo "Signing binaries"
-          bash ../scripts/sign_binary
+          bash ../scripts/qemu.sign
           
           echo "Creating version info"
           echo "QEMU-3dfx-macOS (Windows Build)" > version.txt
@@ -277,7 +277,7 @@ jobs:
             [[ -f license.txt ]] && unix2dos license.txt
             
             # Sign wrapper binaries
-            bash ../../scripts/sign_binary
+            bash ../../scripts/qemu.sign
             
             cd ..
             echo "Creating wrapper ISO"
