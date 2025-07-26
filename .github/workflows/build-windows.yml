@@ -15,7 +15,7 @@ on:
 
 jobs:
   windows-build:
-    runs-on: windows-2019
+    runs-on: windows-latest  # Updated from windows-2019 (retired as of 2025-06-30)
     strategy:
       fail-fast: false
       matrix:
