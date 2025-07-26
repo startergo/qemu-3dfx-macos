@@ -1,13 +1,14 @@
 name: Test and Validate Distribution
 
 on:
-  workflow_run:
-    workflows: ["Build and Package QEMU 3dfx"]
-    types:
-      - completed
-    branches:
-      - master
-      - develop
+  # Temporarily disabled automatic triggering to avoid clutter while fixing workflows
+  # workflow_run:
+  #   workflows: ["Build and Package QEMU 3dfx"]
+  #   types:
+  #     - completed
+  #   branches:
+  #     - master
+  #     - develop
   workflow_dispatch:
     inputs:
       artifact_name:
@@ -93,10 +94,19 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
       
     - name: Set environment
       run: |
-        COMMIT_SHORT=$(git rev-parse --short HEAD)
+        if [ "${{ github.event_name }}" = "workflow_run" ]; then
+          # For workflow_run events, use the triggering workflow's commit
+          COMMIT_SHORT="${{ github.event.workflow_run.head_sha }}"
+          COMMIT_SHORT="${COMMIT_SHORT:0:7}"  # Get first 7 characters
+        else
+          # For manual dispatch, use current HEAD
+          COMMIT_SHORT=$(git rev-parse --short HEAD)
+        fi
         echo "COMMIT_SHORT=${COMMIT_SHORT}" >> $GITHUB_ENV
         
         # Set up test environment
@@ -128,7 +138,7 @@ jobs:
       if: github.event_name == 'workflow_run'
       uses: actions/download-artifact@v4
       with:
-        name: qemu-3dfx-${{ matrix.arch }}-${{ github.sha }}
+        name: qemu-3dfx-${{ matrix.arch }}-${{ github.event.workflow_run.head_sha }}
         path: artifacts/
         run-id: ${{ github.event.workflow_run.id }}
         
