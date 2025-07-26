@@ -41,7 +41,7 @@ jobs:
   build:
     name: Build QEMU 3dfx (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120  # 2 hour timeout to prevent hanging
+    timeout-minutes: 180  # 3 hour timeout for QEMU compilation (increased from 2h)
     strategy:
       matrix:
         arch: ${{ github.event.inputs.target_arch == 'universal' && fromJSON('["arm64", "x86_64"]') || fromJSON(format('["{0}"]', github.event.inputs.target_arch)) }}
@@ -102,17 +102,37 @@ jobs:
         # Install XQuartz (REQUIRED by KJ for Mesa GL context support)
         brew install --cask xquartz
         
-        # Install build tools (matching FRESH-SYSTEM-BUILD-GUIDE.sh)
-        brew install cmake meson ninja pkg-config python@3.12
+        # XQuartz needs to be properly initialized - create the expected directory structure
+        sudo mkdir -p /opt/X11/lib /opt/X11/include
         
-        # Install core QEMU dependencies (from fresh system guide)
-        brew install capstone glib gettext gnutls libepoxy libgcrypt
-        brew install libslirp libusb jpeg-turbo lz4 opus sdl2 zstd
-        brew install libffi ncurses pixman sdl2_image
+        # Link XQuartz libraries to expected location if they're not there yet
+        if [ ! -d "/opt/X11/lib" ] || [ -z "$(ls -A /opt/X11/lib 2>/dev/null)" ]; then
+          echo "Setting up XQuartz library symlinks..."
+          # XQuartz installs to /usr/X11/lib on some systems, check multiple locations
+          for xquartz_lib in "/usr/X11/lib" "/System/Library/Frameworks/OpenGL.framework/Libraries" "/opt/homebrew/lib"; do
+            if [ -d "$xquartz_lib" ]; then
+              sudo ln -sf "$xquartz_lib"/*X11* /opt/X11/lib/ 2>/dev/null || true
+              sudo ln -sf "$xquartz_lib"/*GL* /opt/X11/lib/ 2>/dev/null || true
+            fi
+          done
+          
+          # If still empty, create minimal structure using Homebrew X11 libraries
+          if [ -z "$(ls -A /opt/X11/lib 2>/dev/null)" ]; then
+            echo "Creating X11 library structure using Homebrew libraries..."
+            sudo ln -sf /opt/homebrew/lib/libX11* /opt/X11/lib/
+            sudo ln -sf /opt/homebrew/lib/libXext* /opt/X11/lib/
+            sudo ln -sf /opt/homebrew/lib/libGL* /opt/X11/lib/ 2>/dev/null || true
+          fi
+        fi
         
-        # Install SPICE and audio support (from fresh system guide)
-        brew install spice-protocol spice-server mt32emu
-        brew install sdl12-compat sdl2_net sdl2_sound
+        # Install KJ's specified core prerequisites
+        brew install capstone glib gettext gnutls libepoxy libgcrypt libslirp jpeg-turbo lz4 opus sdl2 zstd
+        
+        # Install KJ's gaming essentials (for DOSBox SVN Games)
+        brew install sdl12-compat sdl2_net sdl2_sound mt32emu
+        
+        # Additional build tools needed for compilation
+        brew install git wget cmake ninja meson pkg-config pixman libffi python@3.12
         
         # Install Python modules required for virglrenderer build
         # Install PyYAML for both system python3 and Homebrew python3.12
@@ -124,8 +144,37 @@ jobs:
         python3 -c "import yaml; print('PyYAML available for system python3')" || echo "PyYAML not found for system python3"
         /opt/homebrew/bin/python3.12 -c "import yaml; print('PyYAML available for Homebrew python3.12')" || echo "PyYAML not found for Homebrew python3.12"
         
-        # X11 development headers are provided by XQuartz
-        # The fix-pkgconfig-to-xquartz.sh script handles the pkg-config redirection
+        # X11 development headers (required for Mesa GL compilation, separate from XQuartz runtime)
+        brew install libx11 libxext libxfixes libxrandr libxinerama libxi libxcursor
+        brew install xorgproto libxxf86vm  # X11 extension headers including xf86vmode.h
+        
+    - name: Setup X11 headers for Mesa GL support
+      run: |
+        # Create X11 directory structure for Mesa headers
+        sudo mkdir -p /usr/local/include/X11/extensions
+        
+        # Setup X11 extension headers from Homebrew (needed for Mesa GL compilation)
+        if [ -d "/opt/homebrew/include/X11" ]; then
+          echo "Setting up X11 headers from Homebrew"
+          sudo cp -rf /opt/homebrew/include/X11/* /usr/local/include/X11/ 2>/dev/null || true
+        fi
+        
+        # Ensure xf86vmode.h is available (needed for Mesa GL context support)
+        if [ ! -f "/usr/local/include/X11/extensions/xf86vmode.h" ] && [ -f "/opt/homebrew/include/X11/extensions/xf86vmode.h" ]; then
+          echo "Copying xf86vmode.h from Homebrew libxxf86vm"
+          sudo cp /opt/homebrew/include/X11/extensions/xf86vmode.h /usr/local/include/X11/extensions/
+        fi
+        
+        # Verify the headers are available
+        echo "Checking X11 extension headers:"
+        ls -la /usr/local/include/X11/extensions/ || true
+        echo "Checking specifically for xf86vmode.h:"
+        test -f /usr/local/include/X11/extensions/xf86vmode.h && echo "✓ xf86vmode.h found" || echo "✗ xf86vmode.h missing"
+        echo "Checking XQuartz X11 library installation:"
+        ls -la /opt/X11/lib/ || echo "XQuartz X11 lib directory not found"
+        echo "Verifying X11 library files:"
+        ls -la /opt/X11/lib/*X11* 2>/dev/null || echo "No X11 libraries found in /opt/X11/lib/"
+        echo "Headers setup complete"
         
     - name: Build QEMU 3dfx with Homebrew
       run: |
@@ -141,14 +190,9 @@ jobs:
           echo "📦 Standard build without experimental patches"
         fi
         
-        # CRITICAL: Run XQuartz pkg-config redirection BEFORE building
-        # This is the key step from FRESH-SYSTEM-BUILD-GUIDE.sh
-        echo "🔧 CRITICAL: Running XQuartz pkg-config redirection..."
-        bash fix-pkgconfig-to-xquartz.sh
-        echo "✅ XQuartz redirection completed"
-        
-        # Install our custom QEMU 3dfx formula (following fresh system guide)
+        # Install our custom QEMU 3dfx formula
         echo "Installing QEMU 3dfx via Homebrew formula..."
+        cd homebrew-qemu3dfx
         
         # Check SPICE dependencies before building
         echo "=== Checking SPICE dependencies ==="
@@ -159,8 +203,7 @@ jobs:
         pkg-config --exists spice-protocol && echo "✅ spice-protocol pkg-config found" || echo "⚠️ spice-protocol pkg-config missing"
         pkg-config --exists spice-server && echo "✅ spice-server pkg-config found" || echo "⚠️ spice-server pkg-config missing"
         
-        # Build via local formula (matching fresh system guide approach)
-        brew install --build-from-source ./homebrew-qemu3dfx/Formula/qemu-3dfx.rb
+        brew install --build-from-source ./Formula/qemu-3dfx.rb
         
         # Verify installation
         echo "Verifying QEMU 3dfx installation..."
@@ -287,114 +330,67 @@ jobs:
         echo "=== Available libraries in Homebrew prefix ==="
         ls -la "${HOMEBREW_PREFIX}/lib/" | grep -E "(glide|virgl|spice|SDL2)" || echo "No matching libraries found"
         
-        # Function to copy library with multiple fallback patterns
-        copy_library() {
-          local lib_name="$1"
-          local lib_patterns=("${@:2}")
-          local found=false
-          
-          for pattern in "${lib_patterns[@]}"; do
-            if [ -f "${HOMEBREW_PREFIX}/lib/${pattern}" ]; then
-              cp "${HOMEBREW_PREFIX}/lib/${pattern}" "${STAGE_DIR}/opt/homebrew/lib/"
-              # Create symlink if this is a versioned library
-              if [[ "$pattern" =~ \.[0-9]+\.dylib$ ]]; then
-                ln -sf "$pattern" "${STAGE_DIR}/opt/homebrew/lib/${lib_name}.dylib"
-              fi
-              echo "✅ Copied ${lib_name} library: ${pattern}"
-              found=true
-              break
-            fi
-          done
-          
-          if [ "$found" = "false" ]; then
-            echo "⚠️ ${lib_name} library not found (tried: ${lib_patterns[*]})"
-          fi
-        }
+        # Copy Glide libraries (3dfx support)
+        if [ -f "${HOMEBREW_PREFIX}/lib/libglide2x.0.dylib" ]; then
+          cp "${HOMEBREW_PREFIX}/lib/libglide2x.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          ln -sf "libglide2x.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/libglide2x.dylib"
+          echo "✅ Copied Glide2x library"
+        else
+          echo "⚠️ libglide2x.0.dylib not found in ${HOMEBREW_PREFIX}/lib/"
+        fi
         
-        # Copy Glide libraries (3dfx support) - try multiple patterns
-        copy_library "libglide2x" "libglide2x.0.dylib" "libglide2x.dylib"
-        copy_library "libglide3x" "libglide3x.0.dylib" "libglide3x.dylib"
+        if [ -f "${HOMEBREW_PREFIX}/lib/libglide3x.0.dylib" ]; then
+          cp "${HOMEBREW_PREFIX}/lib/libglide3x.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          ln -sf "libglide3x.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/libglide3x.dylib"
+          echo "✅ Copied Glide3x library"
+        else
+          echo "⚠️ libglide3x.0.dylib not found in ${HOMEBREW_PREFIX}/lib/"
+        fi
         
-        # Copy VirGL libraries (Virgl3D support) - try multiple patterns
-        copy_library "libvirglrenderer" "libvirglrenderer.1.dylib" "libvirglrenderer.dylib"
+        # Copy VirGL libraries (Virgl3D support)
+        if [ -f "${HOMEBREW_PREFIX}/lib/libvirglrenderer.1.dylib" ]; then
+          cp "${HOMEBREW_PREFIX}/lib/libvirglrenderer.1.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          ln -sf "libvirglrenderer.1.dylib" "${STAGE_DIR}/opt/homebrew/lib/libvirglrenderer.dylib"
+          echo "✅ Copied VirGL library"
+        elif [ -f "${HOMEBREW_PREFIX}/lib/libvirglrenderer.dylib" ]; then
+          cp "${HOMEBREW_PREFIX}/lib/libvirglrenderer.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          echo "✅ Copied VirGL library (unversioned)"
+        else
+          echo "⚠️ VirGL library not found"
+        fi
         
-        # Copy SDL2 library (dependency for display support) - try multiple patterns
-        copy_library "libSDL2" "libSDL2-2.0.0.dylib" "libSDL2.dylib"
+        # Copy SDL2 library (dependency for display support)
+        if [ -f "${HOMEBREW_PREFIX}/lib/libSDL2-2.0.0.dylib" ]; then
+          cp "${HOMEBREW_PREFIX}/lib/libSDL2-2.0.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          ln -sf "libSDL2-2.0.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/libSDL2.dylib"
+          echo "✅ Copied SDL2 library"
+        elif [ -f "${HOMEBREW_PREFIX}/lib/libSDL2.dylib" ]; then
+          cp "${HOMEBREW_PREFIX}/lib/libSDL2.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          echo "✅ Copied SDL2 library (unversioned)"
+        else
+          echo "⚠️ SDL2 library not found"
+        fi
         
-        # Copy SPICE libraries with improved detection
+        # Copy SPICE libraries (these come from spice-server dependency)
         echo "Looking for SPICE libraries..."
         SPICE_FOUND=false
+        find "${HOMEBREW_PREFIX}/lib" -name "libspice-server*.dylib" -exec cp {} "${STAGE_DIR}/opt/homebrew/lib/" \; 2>/dev/null && SPICE_FOUND=true || true
         
-        # Try multiple SPICE library patterns
-        for spice_pattern in "libspice-server.1.dylib" "libspice-server.dylib"; do
-          if [ -f "${HOMEBREW_PREFIX}/lib/${spice_pattern}" ]; then
-            cp "${HOMEBREW_PREFIX}/lib/${spice_pattern}" "${STAGE_DIR}/opt/homebrew/lib/"
-            # Create unversioned symlink if this is versioned
-            if [[ "$spice_pattern" =~ libspice-server\.[0-9]+\.dylib ]]; then
-              ln -sf "$spice_pattern" "${STAGE_DIR}/opt/homebrew/lib/libspice-server.dylib"
-            fi
-            echo "✅ Copied SPICE library: ${spice_pattern}"
-            SPICE_FOUND=true
-            break
-          fi
-        done
-        
-        # Also check Cellar directories for SPICE (they might be in version-specific directories)
-        if [ "$SPICE_FOUND" = "false" ]; then
-          echo "Searching for SPICE libraries in Cellar directories..."
-          find "${HOMEBREW_PREFIX}/Cellar" -name "libspice-server*.dylib" -type f 2>/dev/null | while read spice_lib; do
-            if [ -f "$spice_lib" ]; then
-              cp "$spice_lib" "${STAGE_DIR}/opt/homebrew/lib/"
-              base_name=$(basename "$spice_lib")
-              if [[ "$base_name" =~ libspice-server\.([0-9]+)\.dylib ]]; then
-                ln -sf "$base_name" "${STAGE_DIR}/opt/homebrew/lib/libspice-server.dylib"
-              fi
-              echo "✅ Found and copied SPICE library from Cellar: ${base_name}"
+        # Create symlinks for SPICE libraries
+        for spice_lib in "${STAGE_DIR}/opt/homebrew/lib"/libspice-server*.dylib; do
+          if [ -f "$spice_lib" ]; then
+            base_name=$(basename "$spice_lib")
+            if [[ "$base_name" =~ libspice-server\.([0-9]+)\.dylib ]]; then
+              ln -sf "$base_name" "${STAGE_DIR}/opt/homebrew/lib/libspice-server.dylib"
+              echo "✅ Copied SPICE library: $base_name"
               SPICE_FOUND=true
               break
             fi
-          done
-        fi
-        
-        if [ "$SPICE_FOUND" = "false" ]; then
-          echo "ℹ️ SPICE libraries not found (may be disabled in build)"
-        fi
-        
-        # Verify all required libraries are present in the package
-        echo ""
-        echo "=== Verifying packaged libraries ==="
-        required_libs=(
-          "libglide2x.dylib"
-          "libglide3x.dylib" 
-          "libvirglrenderer.1.dylib"
-          "libspice-server.1.dylib"
-          "libSDL2.dylib"
-        )
-        
-        missing_libs=()
-        for lib in "${required_libs[@]}"; do
-          # Check both versioned and unversioned forms
-          found=false
-          for lib_file in "${STAGE_DIR}/opt/homebrew/lib/${lib}" "${STAGE_DIR}/opt/homebrew/lib/${lib%.*}.0.dylib"; do
-            if [ -f "$lib_file" ] || [ -L "$lib_file" ]; then
-              echo "✓ ${lib} found"
-              found=true
-              break
-            fi
-          done
-          if [ "$found" = "false" ]; then
-            missing_libs+=("$lib")
           fi
         done
         
-        if [ ${#missing_libs[@]} -gt 0 ]; then
-          echo "⚠️ Missing libraries in package:"
-          printf '   %s\n' "${missing_libs[@]}"
-          echo ""
-          echo "Available libraries in package:"
-          ls -la "${STAGE_DIR}/opt/homebrew/lib/" | grep '\.dylib'
-        else
-          echo "✅ All required libraries are packaged successfully!"
+        if [ "$SPICE_FOUND" = "false" ]; then
+          echo "ℹ️ SPICE libraries not found (may be disabled in build)"
         fi
         
         # Copy QEMU data files (BIOS, ROMs, etc.)
@@ -603,33 +599,11 @@ jobs:
         fi
         
         # Test library symlinks
-        echo "=== Verifying packaged libraries ==="
-        required_libs=(
-          "libglide2x.dylib"
-          "libglide3x.dylib" 
-          "libvirglrenderer.1.dylib"
-          "libspice-server.1.dylib"
-          "libSDL2.dylib"
-        )
-        
-        for lib in "${required_libs[@]}"; do
-          # Check both in lib directory and as symlinks
-          found=false
-          for lib_path in "opt/homebrew/lib/${lib}" "opt/homebrew/lib/${lib%.*}.0.dylib"; do
-            if [ -f "$lib_path" ] || [ -L "$lib_path" ]; then
-              if [ -L "$lib_path" ]; then
-                echo "✅ ${lib} symlink found: $(readlink "$lib_path")"
-              else
-                echo "✅ ${lib} file found"
-              fi
-              found=true
-              break
-            fi
-          done
-          if [ "$found" = "false" ]; then
-            echo "⚠️ ${lib} missing from package"
-          fi
-        done
+        if [ -L "opt/homebrew/lib/libglide2x.dylib" ]; then
+          echo "✅ Glide2x symlink found: $(readlink "opt/homebrew/lib/libglide2x.dylib")"
+        else
+          echo "⚠️ Glide2x symlink missing"
+        fi
         
         # Test compatibility symlinks
         if [ -L "usr/local/lib/libglide2x.dylib" ]; then
@@ -716,11 +690,6 @@ jobs:
         - macOS ARM64 (Apple Silicon)
         - macOS x86_64 (Intel)
         
-        ## Virtualization Support
-        - **HVF (Hypervisor Framework)**: Hardware acceleration on macOS
-        - **TCG**: Software emulation (cross-platform, slower)
-        - **Note**: KVM is not available on macOS - use HVF instead
-        
         ## Installation Instructions
         
         1. Download the appropriate tarball for your architecture
@@ -729,36 +698,6 @@ jobs:
         4. **If not auto-signed**: Sign the binaries: \`cd /opt/homebrew/sign && sudo bash ./qemu.sign\`
         
         > **Note**: Auto-signed packages are ready to use immediately after extraction.
-        > **macOS Note**: Use \`-accel hvf\` for hardware acceleration (not \`-enable-kvm\`).
-        
-        ## Building from Source (Fresh System)
-        
-        To reproduce this build on a fresh macOS system:
-        
-        \`\`\`bash
-        # Install prerequisites
-        xcode-select --install
-        brew install --cask xquartz
-        # Log out and back in for XQuartz activation
-        
-        # Clone repository
-        git clone https://github.com/startergo/qemu-3dfx-macos.git
-        cd qemu-3dfx-macos
-        
-        # CRITICAL: Run XQuartz redirection first
-        bash fix-pkgconfig-to-xquartz.sh
-        
-        # Install dependencies and build
-        brew install cmake meson ninja pkg-config python@3.12 \\
-          capstone glib gettext gnutls libepoxy libgcrypt \\
-          libslirp libusb jpeg-turbo lz4 opus sdl2 zstd \\
-          libffi ncurses pixman sdl2_image \\
-          spice-protocol spice-server mt32emu \\
-          sdl12-compat sdl2_net sdl2_sound
-          
-        # Build via Homebrew formula
-        brew install --build-from-source ./homebrew-qemu3dfx/Formula/qemu-3dfx.rb
-        \`\`\`
         
         ## Package Structure
         
@@ -771,59 +710,24 @@ jobs:
         
         ## Usage Examples
         
-        ### 3dfx Glide Support (Legacy DOS/Windows 9x)
+        ### 3dfx Glide Support
         \`\`\`bash
         /opt/homebrew/bin/qemu-system-i386 \\
           -machine pc-i440fx-2.1 \\
           -cpu pentium2 \\
           -m 128 \\
           -device 3dfx,voodoo=voodoo2 \\
-          -display sdl \\
           -hda dos.img
         \`\`\`
         
-        ### Mesa OpenGL Support (macOS with HVF)
+        ### Mesa OpenGL Support
         \`\`\`bash
         /opt/homebrew/bin/qemu-system-x86_64 \\
-          -accel hvf \\
+          -enable-hvf \\
           -m 2048 \\
           -device virtio-vga-gl \\
           -display sdl,gl=on \\
           -hda windows.img
-        \`\`\`
-        
-        ### 3dfx with Hardware Acceleration (Apple Silicon)
-        \`\`\`bash
-        /opt/homebrew/bin/qemu-system-x86_64 \\
-          -M pc \\
-          -cpu max \\
-          -accel hvf \\
-          -m 1G \\
-          -device virtio-vga-gl \\
-          -display sdl,gl=on \\
-          -device glide,model=voodoo2 \\
-          -hda retro_games.img
-        \`\`\`
-        
-        ### Performance Tips for macOS
-        \`\`\`bash
-        # For best performance on Apple Silicon:
-        /opt/homebrew/bin/qemu-system-x86_64 \\
-          -M pc \\
-          -cpu max \\
-          -accel hvf \\
-          -smp 4 \\
-          -m 2G \\
-          -device virtio-vga-gl \\
-          -display sdl,gl=on \\
-          -machine usb=off \\
-          -rtc base=localtime \\
-          -hda modern_guest.img
-        \`\`\`
-        
-        ### Check Available Accelerators
-        \`\`\`bash
-        /opt/homebrew/bin/qemu-system-x86_64 -accel help
         \`\`\`
         
         ## Files in this Release

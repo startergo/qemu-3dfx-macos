@@ -35,7 +35,7 @@ class Qemu3dfx < Formula
   # Additional dependencies for full functionality
   depends_on "libffi"         # Used by GLib
   depends_on "ncurses"        # Required for --enable-curses
-  depends_on "pixman"         # Required for QEMU graphics (will be redirected to XQuartz via script)
+  depends_on "pixman"         # Required for QEMU graphics
   depends_on "sdl2_image"     # Image format support
   
   # SPICE protocol support
@@ -57,10 +57,6 @@ class Qemu3dfx < Formula
   end
 
   def install
-    # IMPORTANT: Run the XQuartz pkg-config redirection script BEFORE building:
-    #   bash /Users/macbookpro/qemu-3dfx-1/fix-pkgconfig-to-xquartz.sh
-    # This redirects pixman and libpng to use XQuartz instead of Homebrew versions
-
     # Set up build environment (minimal, matching build script)
     ENV["PKG_CONFIG_PATH"] = "#{HOMEBREW_PREFIX}/lib/pkgconfig"
 
@@ -68,8 +64,8 @@ class Qemu3dfx < Formula
     epoxy_path = Dir["#{HOMEBREW_PREFIX}/Cellar/libepoxy/*/lib/pkgconfig"].first
     ENV["PKG_CONFIG_PATH"] = "#{epoxy_path}:#{ENV["PKG_CONFIG_PATH"]}" if epoxy_path
 
-    # Skip X11 header setup since we're using pkg-config redirection to XQuartz
-    # setup_x11_headers_for_mesa
+    # Setup X11 headers for Mesa GL compilation (matching GitHub Actions workflow)
+    setup_x11_headers_for_mesa
 
     # Build virglrenderer first with macOS patches
     resource("virglrenderer").stage do
@@ -165,7 +161,7 @@ class Qemu3dfx < Formula
     
     mkdir "build" do
       ohai "Configuring QEMU from build directory (upstream: ../qemu-9.2.2/configure)..."
-      ohai "Using configure options based on upstream but with full target list"
+      ohai "Building all targets: i386-softmmu (3dfx), x86_64-softmmu (modern), aarch64-softmmu (ARM)"
       
       system "../configure",
              "--prefix=#{prefix}",
@@ -186,7 +182,17 @@ class Qemu3dfx < Formula
              # Note: Intentionally minimal - QEMU will auto-detect available features
 
       ohai "Building and installing QEMU 3dfx (upstream: make install)..."
-      system "ninja"
+      
+      # Optimize ninja build for CI environments but keep all targets
+      if ENV["CI"] || ENV["GITHUB_ACTIONS"]
+        # Limit parallel jobs in CI to avoid resource exhaustion
+        ohai "CI detected: Using limited parallel jobs to prevent timeout"
+        system "ninja", "-j2"  # Limit to 2 parallel jobs in CI
+      else
+        # Local builds can use all available cores
+        system "ninja"
+      end
+      
       system "ninja", "install"
     end
 
@@ -196,7 +202,7 @@ class Qemu3dfx < Formula
     # Build host-side 3dfx libraries for QEMU
     build_host_3dfx_libraries
 
-    # Copy version info
+    # Create version info
     (prefix/"VERSION").write("#{version}-#{revision}")
   end
 
