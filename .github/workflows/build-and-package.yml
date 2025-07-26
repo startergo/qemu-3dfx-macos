@@ -44,14 +44,17 @@ jobs:
     timeout-minutes: 180  # 3 hour timeout for QEMU compilation (increased from 2h)
     strategy:
       matrix:
-        arch: ${{ github.event.inputs.target_arch == 'universal' && fromJSON('["arm64", "x86_64"]') || fromJSON(format('["{0}"]', github.event.inputs.target_arch)) }}
         include:
           - arch: arm64
             runner: macos-latest  # ARM64 (Apple Silicon)
             runner_arch: arm64
+            should_run: ${{ github.event.inputs.target_arch == 'universal' || github.event.inputs.target_arch == 'arm64' }}
           - arch: x86_64
             runner: macos-13      # Intel x86_64
             runner_arch: x86_64
+            should_run: ${{ github.event.inputs.target_arch == 'universal' || github.event.inputs.target_arch == 'x86_64' }}
+        exclude:
+          - should_run: false
     
     steps:
     - name: Checkout repository
@@ -526,12 +529,15 @@ jobs:
     needs: build
     strategy:
       matrix:
-        arch: ${{ github.event.inputs.target_arch == 'universal' && fromJSON('["arm64", "x86_64"]') || fromJSON(format('["{0}"]', github.event.inputs.target_arch)) }}
         include:
           - arch: arm64
             runner: macos-latest  # ARM64 (Apple Silicon)
+            should_run: ${{ github.event.inputs.target_arch == 'universal' || github.event.inputs.target_arch == 'arm64' }}
           - arch: x86_64
             runner: macos-13      # Intel x86_64
+            should_run: ${{ github.event.inputs.target_arch == 'universal' || github.event.inputs.target_arch == 'x86_64' }}
+        exclude:
+          - should_run: false
     
     steps:
     - name: Checkout repository

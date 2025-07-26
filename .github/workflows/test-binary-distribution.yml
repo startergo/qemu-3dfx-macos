@@ -113,60 +113,122 @@ jobs:
       run: |
         echo "=== Distribution Structure Analysis ==="
         
-        # Find the main directory
+        # Show the full extracted structure first
+        echo "📁 Full extraction structure:"
+        find "${TEST_PREFIX}" -type d | head -20
+        echo ""
+        
+        # Find the main directory (could be either qemu-3dfx-* or opt/homebrew)
         MAIN_DIR=$(find "${TEST_PREFIX}" -name "qemu-3dfx-*" -type d | head -1)
         
         if [ -z "$MAIN_DIR" ]; then
           echo "❌ No qemu-3dfx directory found"
-          find "${TEST_PREFIX}" -type d
-          exit 1
+          echo "Looking for opt/homebrew structure instead..."
+          
+          # Check if we have opt/homebrew structure (Homebrew-style tarball)
+          if [ -d "${TEST_PREFIX}/opt/homebrew" ]; then
+            MAIN_DIR="${TEST_PREFIX}/opt/homebrew"
+            echo "📁 Found Homebrew structure: $MAIN_DIR"
+          else
+            echo "❌ No recognizable structure found"
+            find "${TEST_PREFIX}" -type d
+            exit 1
+          fi
+        else
+          echo "📁 Main directory: $MAIN_DIR"
         fi
-        
-        echo "📁 Main directory: $MAIN_DIR"
         
         echo "=== Directory Contents ==="
         ls -la "$MAIN_DIR"
         
+        # Detect the actual structure and find binaries
         echo "=== Binaries ==="
-        if [ -d "$MAIN_DIR/bin" ]; then
-          ls -la "$MAIN_DIR/bin"
-          
-          # Test each binary
-          for binary in "$MAIN_DIR/bin"/*; do
-            if [ -x "$binary" ]; then
-              echo "Testing: $(basename $binary)"
-              "$binary" --version 2>/dev/null | head -1 || echo "Version check failed"
-            fi
-          done
-        else
-          echo "No bin directory found"
+        BIN_DIRS=(
+          "$MAIN_DIR/bin"
+          "$MAIN_DIR/opt/homebrew/bin"
+          "$MAIN_DIR"
+        )
+        
+        FOUND_BINARIES=false
+        for bin_dir in "${BIN_DIRS[@]}"; do
+          if [ -d "$bin_dir" ] && [ "$(ls -A "$bin_dir" 2>/dev/null | grep -E '^qemu-')" ]; then
+            echo "📁 Found binaries in: $bin_dir"
+            ls -la "$bin_dir" | grep qemu-
+            FOUND_BINARIES=true
+            
+            # Test each binary
+            for binary in "$bin_dir"/qemu-*; do
+              if [ -x "$binary" ]; then
+                echo "Testing: $(basename $binary)"
+                "$binary" --version 2>/dev/null | head -1 || echo "Version check failed"
+              fi
+            done
+            break
+          fi
+        done
+        
+        if [ "$FOUND_BINARIES" = "false" ]; then
+          echo "❌ No QEMU binaries found in expected locations"
+          echo "Searching for any qemu-* files:"
+          find "${TEST_PREFIX}" -name "qemu-*" -type f
         fi
         
+        # Detect the actual structure and find libraries
         echo "=== Libraries ==="
-        if [ -d "$MAIN_DIR/lib" ]; then
-          ls -la "$MAIN_DIR/lib"
-          
-          # Check library dependencies
-          for lib in "$MAIN_DIR/lib"/*.dylib; do
-            if [ -f "$lib" ]; then
-              echo "Library: $(basename $lib)"
-              otool -L "$lib" | head -5 || echo "Failed to check dependencies"
-            fi
-          done
-        else
-          echo "No lib directory found"
+        LIB_DIRS=(
+          "$MAIN_DIR/lib"
+          "$MAIN_DIR/opt/homebrew/lib"
+        )
+        
+        FOUND_LIBRARIES=false
+        for lib_dir in "${LIB_DIRS[@]}"; do
+          if [ -d "$lib_dir" ]; then
+            echo "📁 Found libraries in: $lib_dir"
+            ls -la "$lib_dir"
+            FOUND_LIBRARIES=true
+            
+            # Check library dependencies for actual library files (not symlinks)
+            for lib in "$lib_dir"/*.dylib; do
+              if [ -f "$lib" ] && [ ! -L "$lib" ]; then
+                echo "Library: $(basename $lib)"
+                otool -L "$lib" | head -5 || echo "Failed to check dependencies"
+              fi
+            done
+            break
+          fi
+        done
+        
+        if [ "$FOUND_LIBRARIES" = "false" ]; then
+          echo "❌ No library directory found"
+          echo "Searching for any .dylib files:"
+          find "${TEST_PREFIX}" -name "*.dylib" -type f
         fi
         
         echo "=== Signing Files ==="
-        if [ -d "$MAIN_DIR/sign" ]; then
-          ls -la "$MAIN_DIR/sign"
-          
-          if [ -f "$MAIN_DIR/sign/qemu.sign" ]; then
-            echo "--- Signing script content ---"
-            head -30 "$MAIN_DIR/sign/qemu.sign"
+        SIGN_DIRS=(
+          "$MAIN_DIR/sign"
+          "$MAIN_DIR/opt/homebrew/sign"
+        )
+        
+        FOUND_SIGNING=false
+        for sign_dir in "${SIGN_DIRS[@]}"; do
+          if [ -d "$sign_dir" ]; then
+            echo "📁 Found signing files in: $sign_dir"
+            ls -la "$sign_dir"
+            FOUND_SIGNING=true
+            
+            if [ -f "$sign_dir/qemu.sign" ]; then
+              echo "--- Signing script content ---"
+              head -30 "$sign_dir/qemu.sign"
+            fi
+            break
           fi
-        else
-          echo "No sign directory found"
+        done
+        
+        if [ "$FOUND_SIGNING" = "false" ]; then
+          echo "❌ No signing directory found"
+          echo "Searching for qemu.sign files:"
+          find "${TEST_PREFIX}" -name "qemu.sign" -type f
         fi
         
     - name: Test commit ID matching
@@ -174,13 +236,31 @@ jobs:
       run: |
         echo "=== Testing Commit ID Matching ==="
         
+        # Find the main directory (could be qemu-3dfx-* or opt/homebrew)
         MAIN_DIR=$(find "${TEST_PREFIX}" -name "qemu-3dfx-*" -type d | head -1)
+        if [ -z "$MAIN_DIR" ] && [ -d "${TEST_PREFIX}/opt/homebrew" ]; then
+          MAIN_DIR="${TEST_PREFIX}/opt/homebrew"
+        fi
         
-        if [ -f "$MAIN_DIR/sign/qemu.sign" ]; then
-          echo "🔍 Checking commit ID in signing script..."
+        # Find the signing script in multiple possible locations
+        SIGN_SCRIPT=""
+        SIGN_LOCATIONS=(
+          "$MAIN_DIR/sign/qemu.sign"
+          "$MAIN_DIR/opt/homebrew/sign/qemu.sign"
+        )
+        
+        for location in "${SIGN_LOCATIONS[@]}"; do
+          if [ -f "$location" ]; then
+            SIGN_SCRIPT="$location"
+            break
+          fi
+        done
+        
+        if [ -n "$SIGN_SCRIPT" ]; then
+          echo "🔍 Checking commit ID in signing script: $SIGN_SCRIPT"
           
           # Extract commit ID from signing script
-          SIGN_COMMIT=$(grep -o 'qemu-3dfx-macos@[a-f0-9]*' "$MAIN_DIR/sign/qemu.sign" | head -1 | cut -d'@' -f2)
+          SIGN_COMMIT=$(grep -o 'qemu-3dfx-macos@[a-f0-9]*' "$SIGN_SCRIPT" | head -1 | cut -d'@' -f2)
           
           echo "📋 Current repository commit: ${COMMIT_SHORT}"
           echo "📋 Signing script commit: ${SIGN_COMMIT}"
@@ -200,12 +280,29 @@ jobs:
       run: |
         echo "=== Testing 3dfx Device Functionality ==="
         
+        # Find the main directory (could be qemu-3dfx-* or opt/homebrew)
         MAIN_DIR=$(find "${TEST_PREFIX}" -name "qemu-3dfx-*" -type d | head -1)
+        if [ -z "$MAIN_DIR" ] && [ -d "${TEST_PREFIX}/opt/homebrew" ]; then
+          MAIN_DIR="${TEST_PREFIX}/opt/homebrew"
+        fi
         
-        if [ -f "$MAIN_DIR/bin/qemu-system-i386" ]; then
-          QEMU_BIN="$MAIN_DIR/bin/qemu-system-i386"
-          
-          echo "🎮 Testing QEMU system emulator..."
+        # Find qemu-system-i386 in multiple possible locations
+        QEMU_BIN=""
+        QEMU_LOCATIONS=(
+          "$MAIN_DIR/bin/qemu-system-i386"
+          "$MAIN_DIR/opt/homebrew/bin/qemu-system-i386"
+          "$MAIN_DIR/qemu-system-i386"
+        )
+        
+        for location in "${QEMU_LOCATIONS[@]}"; do
+          if [ -f "$location" ]; then
+            QEMU_BIN="$location"
+            break
+          fi
+        done
+        
+        if [ -n "$QEMU_BIN" ]; then
+          echo "🎮 Testing QEMU system emulator: $QEMU_BIN"
           "$QEMU_BIN" --version
           
           echo "🔍 Checking available devices..."
@@ -242,10 +339,29 @@ jobs:
         # Install signing dependencies
         brew install --cask xquartz || echo "XQuartz already installed"
         
+        # Find the main directory (could be qemu-3dfx-* or opt/homebrew)
         MAIN_DIR=$(find "${TEST_PREFIX}" -name "qemu-3dfx-*" -type d | head -1)
+        if [ -z "$MAIN_DIR" ] && [ -d "${TEST_PREFIX}/opt/homebrew" ]; then
+          MAIN_DIR="${TEST_PREFIX}/opt/homebrew"
+        fi
         
-        if [ -f "$MAIN_DIR/sign/qemu.sign" ]; then
-          cd "$MAIN_DIR/sign"
+        # Find the signing script in multiple possible locations
+        SIGN_SCRIPT=""
+        SIGN_LOCATIONS=(
+          "$MAIN_DIR/sign/qemu.sign"
+          "$MAIN_DIR/opt/homebrew/sign/qemu.sign"
+        )
+        
+        for location in "${SIGN_LOCATIONS[@]}"; do
+          if [ -f "$location" ]; then
+            SIGN_SCRIPT="$location"
+            break
+          fi
+        done
+        
+        if [ -n "$SIGN_SCRIPT" ]; then
+          SIGN_DIR=$(dirname "$SIGN_SCRIPT")
+          cd "$SIGN_DIR"
           
           echo "🔍 Checking signing dependencies..."
           
