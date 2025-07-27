@@ -144,25 +144,61 @@ class Qemu3dfx < Formula
     epoxy_path = Dir["#{HOMEBREW_PREFIX}/Cellar/libepoxy/*/lib/pkgconfig"].first
     ENV["PKG_CONFIG_PATH"] = "#{prefix}/lib/pkgconfig:#{epoxy_path}:#{HOMEBREW_PREFIX}/lib/pkgconfig:#{HOMEBREW_PREFIX}/share/pkgconfig" if epoxy_path
 
+    # CRITICAL FIX: Apply patches from within the extracted QEMU source directory
+    # Upstream sequence: cd qemu-9.2.2, then apply patches from within that directory
+    # The Homebrew buildpath is where qemu-9.2.2.tar.xz gets extracted
+    
     # Debug: Show current working directory and paths
     ohai "Current working directory: #{Dir.pwd}"
     ohai "Formula __dir__: #{__dir__}"
-    ohai "About to apply 3dfx patches..."
+    ohai "Buildpath contents: #{Dir.entries(buildpath).reject { |f| f.start_with?('.') }}"
     
-    # Apply patches
-    apply_3dfx_patches
-
-    # Debug: Show patches applied
-    ohai "3dfx patches application completed"
+    # Check if we have QEMU source files in the current buildpath
+    if File.exist?("#{buildpath}/configure") && File.exist?("#{buildpath}/meson.build")
+      ohai "QEMU source files detected in buildpath - applying patches directly"
+      
+      # Apply patches from the buildpath (which contains the QEMU source)
+      Dir.chdir(buildpath) do
+        ohai "Now in QEMU source directory: #{Dir.pwd}"
+        ohai "About to apply 3dfx patches (upstream sequence)..."
+        
+        # Apply patches from within the QEMU source directory (matching upstream exactly)
+        apply_3dfx_patches
+        
+        ohai "3dfx patches application completed from within QEMU source directory"
+      end
+    else
+      # Find the extracted QEMU source directory (alternative case)
+      qemu_source_dir = Dir.glob("#{buildpath}/qemu-*").select { |path| File.directory?(path) }.first
+      if qemu_source_dir.nil?
+        odie "QEMU source directory not found in buildpath!"
+      end
+      
+      ohai "Found QEMU source directory: #{qemu_source_dir}"
+      ohai "Changing to QEMU source directory to apply patches (matching upstream sequence)"
+      
+      # Change to the QEMU source directory and apply patches from there
+      Dir.chdir(qemu_source_dir) do
+        ohai "Now in QEMU source directory: #{Dir.pwd}"
+        ohai "About to apply 3dfx patches (upstream sequence: cd qemu-9.2.2 && apply patches)..."
+        
+        # Apply patches from within qemu-9.2.2/ directory (matching upstream exactly)
+        apply_3dfx_patches
+        
+        ohai "3dfx patches application completed from within QEMU source directory"
+      end
+    end
 
     # Configure QEMU (following upstream build sequence: mkdir ../build && cd ../build)
     # Upstream: ../qemu-9.2.2/configure --target-list=i386-softmmu --prefix=$(pwd)/../install_dir
     ohai "Creating separate build directory (upstream sequence: mkdir ../build && cd ../build)"
     
+    # Create build directory at buildpath level (since QEMU source is in buildpath)
     mkdir "build" do
       ohai "Configuring QEMU from build directory (upstream: ../qemu-9.2.2/configure)..."
       ohai "Building all targets: i386-softmmu (3dfx), x86_64-softmmu (modern), aarch64-softmmu (ARM)"
       
+      # Configure from build directory pointing to the QEMU source in buildpath
       system "../configure",
              "--prefix=#{prefix}",
              "--target-list=i386-softmmu,x86_64-softmmu,aarch64-softmmu",
@@ -247,15 +283,38 @@ class Qemu3dfx < Formula
 
   def apply_3dfx_patches
     ohai "=== Starting apply_3dfx_patches function ==="
+    ohai "Working directory: #{Dir.pwd}"
     ohai "Following upstream qemu-3dfx build sequence exactly:"
     ohai "1. Copy 3dfx/mesa source files (rsync -r ../qemu-0/hw/3dfx ../qemu-1/hw/mesa ./hw/)"
     ohai "2. Apply 3dfx Mesa/Glide patch (patch -p0 -i ../00-qemu92x-mesa-glide.patch)"
     ohai "3. Run sign_commit script (bash ../scripts/sign_commit)"
     
+    # Initialize git repository for patch application (required for git apply)
+    unless Dir.exist?(".git")
+      ohai "Initializing git repository for patch application..."
+      system "git", "init"
+      system "git", "add", "."
+      system "git", "commit", "-m", "Initial QEMU source import"
+    end
+    
+    # Calculate paths relative to qemu-9.2.2/ directory (where we are now)
+    # Formula __dir__ points to: /Users/.../qemu-3dfx-1/homebrew-qemu3dfx/Formula/
+    # We need to go up to qemu-3dfx-1/ root: ../../
+    repo_root = File.expand_path("../../", __dir__)
+    ohai "Repository root: #{repo_root}"
+    
+    # Verify we found the correct repository root
+    unless File.exist?("#{repo_root}/qemu-0") && File.exist?("#{repo_root}/00-qemu92x-mesa-glide.patch")
+      ohai "Warning: Repository root detection may be incorrect"
+      ohai "Expected files missing in #{repo_root}"
+      ohai "Looking for qemu-0/, 00-qemu92x-mesa-glide.patch"
+      ohai "Formula __dir__: #{__dir__}"
+    end
+    
     # Step 1: Copy 3dfx and mesa source files FIRST (matching upstream rsync command)
     # Upstream: rsync -r ../qemu-0/hw/3dfx ../qemu-1/hw/mesa ./hw/
-    qemu0_hw = "#{__dir__}/../../qemu-0/hw"
-    qemu1_hw = "#{__dir__}/../../qemu-1/hw"
+    qemu0_hw = "#{repo_root}/qemu-0/hw"
+    qemu1_hw = "#{repo_root}/qemu-1/hw"
 
     mkdir_p "hw"
     
@@ -274,7 +333,7 @@ class Qemu3dfx < Formula
     end
 
     # Step 2: Apply KJ's Mesa/Glide patches (patch -p0 -i ../00-qemu92x-mesa-glide.patch)
-    patch_file = "#{__dir__}/../../00-qemu92x-mesa-glide.patch"
+    patch_file = "#{repo_root}/00-qemu92x-mesa-glide.patch"
     ohai "Step 2: Looking for patch file at: #{patch_file}"
     
     if File.exist?(patch_file)
@@ -286,15 +345,14 @@ class Qemu3dfx < Formula
     end
 
     # Step 3: Sign commit (bash ../scripts/sign_commit) - this is essential for 3dfx functionality
-    sign_script = "#{__dir__}/../../scripts/sign_commit"
+    sign_script = "#{repo_root}/scripts/sign_commit"
     if File.exist?(sign_script)
       ohai "Step 3: Running sign_commit script (upstream sequence: bash ../scripts/sign_commit)"
       # The sign_commit script embeds git commit info from the qemu-3dfx repository
       # and ensures proper signature matching between QEMU and 3dfx drivers
-      repo_dir = File.expand_path("../..", __dir__)
       
       # Get commit ID for naming and signing
-      commit_id = `cd #{repo_dir} && git rev-parse --short HEAD`.strip
+      commit_id = `cd #{repo_root} && git rev-parse --short HEAD`.strip
       
       ohai "Using commit ID: #{commit_id}"
       
@@ -302,14 +360,14 @@ class Qemu3dfx < Formula
       ENV["QEMU_3DFX_COMMIT"] = commit_id
       
       # Run sign_commit matching upstream: bash ../scripts/sign_commit
-      system "bash", sign_script, "-git=#{repo_dir}", "-commit=#{commit_id}", "HEAD"
+      system "bash", sign_script, "-git=#{repo_root}", "-commit=#{commit_id}", "HEAD"
     else
       ohai "Warning: sign_commit script not found - 3dfx drivers may not load properly"
     end
 
     # Additional patches for macOS compatibility (after main 3dfx patches)
     # Apply Virgl3D patches for QEMU (SDL2+OpenGL compatibility on macOS)
-    virgl_patches_dir = "#{__dir__}/../../virgil3d"
+    virgl_patches_dir = "#{repo_root}/virgil3d"
     if Dir.exist?(virgl_patches_dir)
       Dir["#{virgl_patches_dir}/*.patch"].each do |patch|
         # These patches fix QEMU's SDL2+OpenGL implementation for macOS:
