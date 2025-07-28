@@ -1,11 +1,11 @@
 class Qemu3dfx < Formula
   desc "QEMU with 3dfx Voodoo and Virgl3D OpenGL acceleration support"
   homepage "https://github.com/startergo/qemu-3dfx-macos"
-  url "https://download.qemu.org/qemu-9.2.2.tar.xz"
-  version "9.2.2-3dfx"
-  sha256 "752eaeeb772923a73d536b231e05bcc09c9b1f51690a41ad9973d900e4ec9fbf"
+  url "https://download.qemu.org/qemu-10.0.0.tar.xz"
+  version "10.0.0-3dfx"
+  sha256 "22c075601fdcf8c7b2671a839ebdcef1d4f2973eb6735254fd2e1bd0f30b3896"
   license "GPL-2.0-or-later"
-  revision 26
+  revision 1
 
   head "https://github.com/startergo/qemu-3dfx-macos.git", branch: "master"
 
@@ -180,9 +180,9 @@ class Qemu3dfx < Formula
       # Change to the QEMU source directory and apply patches from there
       Dir.chdir(qemu_source_dir) do
         ohai "Now in QEMU source directory: #{Dir.pwd}"
-        ohai "About to apply 3dfx patches (upstream sequence: cd qemu-9.2.2 && apply patches)..."
+        ohai "About to apply 3dfx patches (upstream sequence: cd qemu-10.0.0 && apply patches)..."
         
-        # Apply patches from within qemu-9.2.2/ directory (matching upstream exactly)
+        # Apply patches from within qemu-10.0.0/ directory (matching upstream exactly)
         apply_3dfx_patches
         
         ohai "3dfx patches application completed from within QEMU source directory"
@@ -190,12 +190,12 @@ class Qemu3dfx < Formula
     end
 
     # Configure QEMU (following upstream build sequence: mkdir ../build && cd ../build)
-    # Upstream: ../qemu-9.2.2/configure --target-list=i386-softmmu --prefix=$(pwd)/../install_dir
+    # Upstream: ../qemu-10.0.0/configure --target-list=i386-softmmu --prefix=$(pwd)/../install_dir
     ohai "Creating separate build directory (upstream sequence: mkdir ../build && cd ../build)"
     
     # Create build directory at buildpath level (since QEMU source is in buildpath)
     mkdir "build" do
-      ohai "Configuring QEMU from build directory (upstream: ../qemu-9.2.2/configure)..."
+      ohai "Configuring QEMU from build directory (upstream: ../qemu-10.0.0/configure)..."
       ohai "Building all targets: i386-softmmu (3dfx), x86_64-softmmu (modern), aarch64-softmmu (ARM)"
       
       # Configure from build directory pointing to the QEMU source in buildpath
@@ -286,7 +286,7 @@ class Qemu3dfx < Formula
     ohai "Working directory: #{Dir.pwd}"
     ohai "Following upstream qemu-3dfx build sequence exactly:"
     ohai "1. Copy 3dfx/mesa source files (rsync -r ../qemu-0/hw/3dfx ../qemu-1/hw/mesa ./hw/)"
-    ohai "2. Apply 3dfx Mesa/Glide patch (patch -p0 -i ../00-qemu92x-mesa-glide.patch)"
+    ohai "2. Apply 3dfx Mesa/Glide patch (patch -p0 -i ../00-qemu100x-mesa-glide.patch)"
     ohai "3. Run sign_commit script (bash ../scripts/sign_commit)"
     
     # Initialize git repository for patch application (required for git apply)
@@ -304,10 +304,10 @@ class Qemu3dfx < Formula
     ohai "Repository root: #{repo_root}"
     
     # Verify we found the correct repository root
-    unless File.exist?("#{repo_root}/qemu-0") && File.exist?("#{repo_root}/00-qemu92x-mesa-glide.patch")
+    unless File.exist?("#{repo_root}/qemu-0") && File.exist?("#{repo_root}/00-qemu100x-mesa-glide.patch")
       ohai "Warning: Repository root detection may be incorrect"
       ohai "Expected files missing in #{repo_root}"
-      ohai "Looking for qemu-0/, 00-qemu92x-mesa-glide.patch"
+      ohai "Looking for qemu-0/, 00-qemu100x-mesa-glide.patch"
       ohai "Formula __dir__: #{__dir__}"
     end
     
@@ -332,16 +332,16 @@ class Qemu3dfx < Formula
       ohai "Warning: Mesa directory not found at #{qemu1_hw}/mesa"
     end
 
-    # Step 2: Apply KJ's Mesa/Glide patches (patch -p0 -i ../00-qemu92x-mesa-glide.patch)
-    patch_file = "#{repo_root}/00-qemu92x-mesa-glide.patch"
-    ohai "Step 2: Looking for patch file at: #{patch_file}"
+    # Step 2: Apply KJ's Mesa/Glide patches (patch -p0 -i ../00-qemu100x-mesa-glide.patch)
+    patch_file = "#{repo_root}/00-qemu100x-mesa-glide.patch"
+    ohai "Step 2: Looking for QEMU 10.0.0 patch file at: #{patch_file}"
     
     if File.exist?(patch_file)
-      ohai "Step 2: Applying QEMU 3dfx Mesa/Glide patch with -p0 (upstream sequence)"
-      # Use -p0 to match upstream build sequence exactly: patch -p0 -i ../00-qemu92x-mesa-glide.patch
+      ohai "Step 2: Applying QEMU 10.0.0 3dfx Mesa/Glide patch with -p0 (upstream sequence)"
+      # Use -p0 to match upstream build sequence exactly: patch -p0 -i ../00-qemu100x-mesa-glide.patch
       system "patch", "-p0", "-i", patch_file
     else
-      ohai "3dfx patch file not found at: #{patch_file}"
+      ohai "QEMU 10.0.0 3dfx patch file not found at: #{patch_file}"
     end
 
     # Step 3: Sign commit (bash ../scripts/sign_commit) - this is essential for 3dfx functionality
@@ -366,6 +366,21 @@ class Qemu3dfx < Formula
     end
 
     # Additional patches for macOS compatibility (after main 3dfx patches)
+    # Apply SDL clipboard patch for QEMU 10.0.0 (conditional on experimental flag)
+    if ENV["APPLY_EXPERIMENTAL_PATCHES"] == "true"
+      ohai "Experimental patches enabled - applying SDL clipboard patch"
+      sdl_clipboard_patch = "#{repo_root}/patches/qemu-10.0.0-sdl-clipboard-simple-safe.patch"
+      if File.exist?(sdl_clipboard_patch)
+        ohai "Applying SDL clipboard patch for QEMU 10.0.0"
+        apply_patch_with_path_fixing(sdl_clipboard_patch)
+      else
+        ohai "SDL clipboard patch not found at: #{sdl_clipboard_patch}"
+      end
+    else
+      ohai "Experimental patches disabled - skipping SDL clipboard patch"
+      ohai "To enable: set APPLY_EXPERIMENTAL_PATCHES=true in workflow"
+    end
+
     # Apply Virgl3D patches for QEMU (SDL2+OpenGL compatibility on macOS)
     virgl_patches_dir = "#{repo_root}/virgil3d"
     if Dir.exist?(virgl_patches_dir)

@@ -1,0 +1,241 @@
+diff -Naur qemu-10.0.0-clean/include/ui/sdl2.h qemu-10.0.0-patched/include/ui/sdl2.h
+--- qemu-10.0.0-clean/include/ui/sdl2.h	2025-04-22 23:26:11
++++ qemu-10.0.0-patched/include/ui/sdl2.h	2025-07-28 12:01:40
+@@ -21,6 +21,8 @@
+ # include <SDL_image.h>
+ #endif
+ 
++#include "ui/clipboard.h"
++#include "ui/console.h"
+ #include "ui/kbd-state.h"
+ #ifdef CONFIG_OPENGL
+ # include "ui/egl-helpers.h"
+@@ -45,6 +47,7 @@
+     bool gui_keysym;
+     SDL_GLContext winctx;
+     QKbdState *kbd;
++    QemuClipboardPeer cbpeer;
+ #ifdef CONFIG_OPENGL
+     QemuGLShader *gls;
+     egl_fb guest_fb;
+@@ -96,5 +99,10 @@
+                              void *d3d_tex2d);
+ void sdl2_gl_scanout_flush(DisplayChangeListener *dcl,
+                            uint32_t x, uint32_t y, uint32_t w, uint32_t h);
++
++#ifdef CONFIG_SDL_CLIPBOARD
++void sdl2_clipboard_init(struct sdl2_console *scon);
++void sdl2_clipboard_handle_request(struct sdl2_console *scon);
++#endif
+ 
+ #endif /* SDL2_H */
+diff -Naur qemu-10.0.0-clean/meson.build qemu-10.0.0-patched/meson.build
+--- qemu-10.0.0-clean/meson.build	2025-04-22 23:26:11
++++ qemu-10.0.0-patched/meson.build	2025-07-28 12:01:40
+@@ -2511,6 +2511,9 @@
+ config_host_data.set('CONFIG_SAFESTACK', get_option('safe_stack'))
+ config_host_data.set('CONFIG_SDL', sdl.found())
+ config_host_data.set('CONFIG_SDL_IMAGE', sdl_image.found())
++if sdl.found()
++  config_host_data.set('CONFIG_SDL_CLIPBOARD', 1)
++endif
+ config_host_data.set('CONFIG_SECCOMP', seccomp.found())
+ if seccomp.found()
+   config_host_data.set('CONFIG_SECCOMP_SYSRAWRC', seccomp_has_sysrawrc)
+diff -Naur qemu-10.0.0-clean/ui/meson.build qemu-10.0.0-patched/ui/meson.build
+--- qemu-10.0.0-clean/ui/meson.build	2025-04-22 23:26:11
++++ qemu-10.0.0-patched/ui/meson.build	2025-07-28 12:01:40
+@@ -124,6 +124,7 @@
+   sdl_ss.add(sdl, sdl_image, pixman, glib, files(
+     'sdl2-2d.c',
+     'sdl2-input.c',
++    'sdl2-clipboard.c',
+     'sdl2.c',
+   ))
+   sdl_ss.add(when: opengl, if_true: files('sdl2-gl.c'))
+diff -Naur qemu-10.0.0-clean/ui/sdl2-clipboard.c qemu-10.0.0-patched/ui/sdl2-clipboard.c
+--- qemu-10.0.0-clean/ui/sdl2-clipboard.c	1970-01-01 02:00:00
++++ qemu-10.0.0-patched/ui/sdl2-clipboard.c	2025-07-28 12:01:40
+@@ -0,0 +1,157 @@
++/*
++ * SDL UI -- clipboard support (safe version)
++ *
++ * Copyright (C) 2023 Kamay Xutax <admin@xutaxkamay.com>
++ * Fixed by GitHub Copilot (2025) - Avoiding main loop reentrancy issues
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ *
++ * NOTE: This implementation avoids main loop reentrancy issues similar to
++ * those found in GTK clipboard (see QEMU issue #1150). It uses deferred
++ * processing without timers for simplicity and safety.
++ */
++
++#include "qemu/osdep.h"
++#include "ui/console.h"
++#include "ui/clipboard.h"
++#include "ui/sdl2.h"
++
++static void sdl2_clipboard_update(struct sdl2_console *scon,
++                                  QemuClipboardInfo *info)
++{
++    bool self_update = info->owner == &scon->cbpeer;
++    char *text = NULL;
++    size_t text_size;
++
++    /*
++     * Skip self-updates to avoid clipboard manager conflicts.
++     * This prevents infinite loops with clipboard managers.
++     */
++    if (self_update) {
++        return;
++    }
++
++    if (!info->types[QEMU_CLIPBOARD_TYPE_TEXT].available) {
++        return;
++    }
++
++    /* Take a reference to prevent info from being freed */
++    info = qemu_clipboard_info_ref(info);
++    
++    /* Request clipboard data if not already available */
++    if (!info->types[QEMU_CLIPBOARD_TYPE_TEXT].data) {
++        qemu_clipboard_request(info, QEMU_CLIPBOARD_TYPE_TEXT);
++        
++        /* 
++         * For simplicity, we only process clipboard if data is immediately
++         * available. This avoids main loop reentrancy completely but may
++         * miss some clipboard updates. This is safer than the busy-wait
++         * approach in the original patch.
++         */
++        if (!info->types[QEMU_CLIPBOARD_TYPE_TEXT].data) {
++            qemu_clipboard_info_unref(info);
++            return;
++        }
++    }
++
++    /* Check if we have text data */
++    text_size = info->types[QEMU_CLIPBOARD_TYPE_TEXT].size;
++    if (text_size == 0) {
++        qemu_clipboard_info_unref(info);
++        return;
++    }
++
++    /* 
++     * For UTF-8 text, we expect null-terminated strings.
++     * If the data contains embedded nulls, truncate at first null.
++     */
++    text = g_strndup((const char *)info->types[QEMU_CLIPBOARD_TYPE_TEXT].data, text_size);
++    if (text && strlen(text) > 0) {
++        SDL_SetClipboardText(text);
++    }
++    
++    g_free(text);
++    qemu_clipboard_info_unref(info);
++}
++
++static void sdl2_clipboard_notify(Notifier *notifier, void *data)
++{
++    QemuClipboardNotify *notify = data;
++    struct sdl2_console *scon =
++        container_of(notifier, struct sdl2_console, cbpeer.notifier);
++
++    switch (notify->type) {
++    case QEMU_CLIPBOARD_UPDATE_INFO:
++        sdl2_clipboard_update(scon, notify->info);
++        break;
++    case QEMU_CLIPBOARD_RESET_SERIAL:
++        /* Nothing to do for reset */
++        break;
++    }
++}
++
++static void sdl2_clipboard_request(QemuClipboardInfo *info,
++                                   QemuClipboardType type)
++{
++    struct sdl2_console *scon =
++        container_of(info->owner, struct sdl2_console, cbpeer);
++    char *sdl_text = NULL;
++
++    switch (type) {
++    case QEMU_CLIPBOARD_TYPE_TEXT:
++        if (!SDL_HasClipboardText()) {
++            return;
++        }
++
++        sdl_text = SDL_GetClipboardText();
++        if (sdl_text && strlen(sdl_text) > 0) {
++            /*
++             * SDL guarantees null-terminated UTF-8 strings.
++             * Pass length without null terminator as QEMU clipboard
++             * will handle null termination consistently.
++             */
++            qemu_clipboard_set_data(&scon->cbpeer, info, type,
++                                    strlen(sdl_text), sdl_text, true);
++        }
++        
++        /* Always free SDL-allocated memory */
++        if (sdl_text) {
++            SDL_free(sdl_text);
++        }
++        break;
++    default:
++        break;
++    }
++}
++
++void sdl2_clipboard_handle_request(struct sdl2_console *scon)
++{
++    g_autoptr(QemuClipboardInfo) info =
++        qemu_clipboard_info_new(&scon->cbpeer,
++                                QEMU_CLIPBOARD_SELECTION_CLIPBOARD);
++
++    if (info) {
++        sdl2_clipboard_request(info, QEMU_CLIPBOARD_TYPE_TEXT);
++    }
++}
++
++void sdl2_clipboard_init(struct sdl2_console *scon)
++{
++    scon->cbpeer.name = "sdl2";
++    scon->cbpeer.notifier.notify = sdl2_clipboard_notify;
++    scon->cbpeer.request = sdl2_clipboard_request;
++    
++    /* Register the clipboard peer with QEMU */
++    qemu_clipboard_peer_register(&scon->cbpeer);
++}
+diff -Naur qemu-10.0.0-clean/ui/sdl2.c qemu-10.0.0-patched/ui/sdl2.c
+--- qemu-10.0.0-clean/ui/sdl2.c	2025-04-22 23:26:11
++++ qemu-10.0.0-patched/ui/sdl2.c	2025-07-28 12:01:40
+@@ -691,6 +691,11 @@
+         case SDL_WINDOWEVENT:
+             handle_windowevent(ev);
+             break;
++#ifdef CONFIG_SDL_CLIPBOARD
++        case SDL_CLIPBOARDUPDATE:
++            sdl2_clipboard_handle_request(scon);
++            break;
++#endif
+         default:
+             break;
+         }
+@@ -909,6 +914,9 @@
+             qemu_console_set_window_id(con, info.info.x11.window);
+ #endif
+         }
++#endif
++#ifdef CONFIG_SDL_CLIPBOARD
++        sdl2_clipboard_init(&sdl2_console[i]);
+ #endif
+     }
+ 
