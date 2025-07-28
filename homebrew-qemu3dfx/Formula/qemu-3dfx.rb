@@ -348,10 +348,17 @@ class Qemu3dfx < Formula
 
     # Additional patches for macOS compatibility (applied BEFORE sign_commit)
     # Apply SDL clipboard patch for QEMU 10.0.0 (conditional on experimental flag)
+    # Check both environment variable and flag file for maximum reliability
     experimental_patches_env = ENV["APPLY_EXPERIMENTAL_PATCHES"]
-    ohai "Environment variable APPLY_EXPERIMENTAL_PATCHES = '#{experimental_patches_env}'"
+    flag_file_value = File.exist?("/tmp/apply_experimental_patches") ? File.read("/tmp/apply_experimental_patches").strip : nil
     
-    if experimental_patches_env == "true"
+    ohai "Environment variable APPLY_EXPERIMENTAL_PATCHES = '#{experimental_patches_env}'"
+    ohai "Flag file value = '#{flag_file_value}'"
+    
+    # Use flag file value if available, fallback to environment variable
+    use_experimental = (flag_file_value == "true") || (flag_file_value.nil? && experimental_patches_env == "true")
+    
+    if use_experimental
       ohai "✅ Experimental patches enabled - applying SDL clipboard patch"
       sdl_clipboard_patch = "#{repo_root}/patches/qemu-10.0.0-sdl-clipboard-simple-safe.patch"
       if File.exist?(sdl_clipboard_patch)
@@ -363,7 +370,8 @@ class Qemu3dfx < Formula
     else
       ohai "❌ Experimental patches disabled - skipping SDL clipboard patch"
       ohai "To enable: set APPLY_EXPERIMENTAL_PATCHES=true in workflow"
-      ohai "Current value: APPLY_EXPERIMENTAL_PATCHES='#{experimental_patches_env}'"
+      ohai "Current env value: APPLY_EXPERIMENTAL_PATCHES='#{experimental_patches_env}'"
+      ohai "Current flag file value: '#{flag_file_value}'"
     end
 
     # Apply Virgl3D patches for QEMU (SDL2+OpenGL compatibility on macOS)

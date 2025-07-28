@@ -269,29 +269,36 @@ jobs:
         # Build with Homebrew formula (APPLY_EXPERIMENTAL_PATCHES is now exported in current shell)
         echo "Running brew install with environment variable APPLY_EXPERIMENTAL_PATCHES=${APPLY_EXPERIMENTAL_PATCHES}..."
         
-        # Use env command to explicitly pass environment variable to Homebrew subprocess
-        env APPLY_EXPERIMENTAL_PATCHES="${APPLY_EXPERIMENTAL_PATCHES}" brew install --build-from-source ./Formula/qemu-3dfx.rb
-        
+        # Create flag file for Homebrew formula to read (more reliable than env vars)
+        if [ "${APPLY_EXPERIMENTAL_PATCHES}" = "true" ]; then
+          echo "true" > /tmp/apply_experimental_patches
+          echo "📝 Created flag file: /tmp/apply_experimental_patches with value 'true'"
+        else
+          echo "false" > /tmp/apply_experimental_patches
+          echo "📝 Created flag file: /tmp/apply_experimental_patches with value 'false'"
+        fi
+
+        # Install with build from source
+        brew install --build-from-source ./Formula/qemu-3dfx.rb
+
         # Verify installation
         echo "Verifying QEMU 3dfx installation..."
         brew list qemu-3dfx
-        
+
         # Check version signature
         qemu-system-i386 --version | grep "featuring qemu-3dfx" || {
           echo "❌ QEMU 3dfx signature not found in version output"
           exit 1
         }
-        
+
         # Show build configuration summary
         echo "=== QEMU Build Configuration ==="
         qemu-system-i386 --version
         echo ""
         echo "Checking for SPICE support in binary:"
         strings $(which qemu-system-i386) | grep -i spice | head -5 || echo "No SPICE strings found in binary"
-        
-        echo "✅ QEMU 3dfx installed successfully via Homebrew"
-        
-    - name: Verify build
+
+        echo "✅ QEMU 3dfx installed successfully via Homebrew"    - name: Verify build
       if: steps.should_run.outputs.should_run == 'true'
       run: |
         # Check Homebrew installation paths
