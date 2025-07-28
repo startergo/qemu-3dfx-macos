@@ -415,6 +415,7 @@ class Qemu3dfx < Formula
 
     # Apply GL_CONTEXTALPHA fix
     inreplace "hw/mesa/mglcntx_linux.c", "GL_CONTEXTALPHA", "GLX_ALPHA_SIZE" if File.exist?("hw/mesa/mglcntx_linux.c")
+  end
 
   def apply_patch_with_path_fixing(patch_file)
     # Helper method to apply patches with dynamic path fixing
@@ -813,5 +814,4 @@ class Qemu3dfx < Formula
     display_output = shell_output("#{bin}/qemu-system-x86_64 -display help")
     assert_match "sdl", display_output, "SDL display support not found"
   end
-end
 end
