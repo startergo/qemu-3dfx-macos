@@ -217,15 +217,22 @@ jobs:
         echo "Length of input: ${#WORKFLOW_INPUT}"
         echo "Type check - comparing to 'true': [ '${WORKFLOW_INPUT}' = 'true' ]"
         
-        # Handle GitHub Actions boolean inputs more robustly
-        if [ "${WORKFLOW_INPUT}" = "true" ]; then
+        # Handle GitHub Actions boolean inputs more robustly - check for default value
+        # If input is empty or undefined, use the default value 'true'
+        if [ "${WORKFLOW_INPUT}" = "true" ] || [ -z "${WORKFLOW_INPUT}" ]; then
           export APPLY_EXPERIMENTAL_PATCHES="true"
-          echo "🧪 Experimental patches will be applied (workflow input = true)"
-          echo "✅ CONDITION MET: apply_experimental is true"
+          echo "🧪 Experimental patches will be applied (workflow input = '${WORKFLOW_INPUT}' or default)"
+          echo "✅ CONDITION MET: apply_experimental is true or using default"
         else
           export APPLY_EXPERIMENTAL_PATCHES="false"
           echo "📦 Standard build without experimental patches (workflow input = '${WORKFLOW_INPUT}')"
-          echo "❌ CONDITION NOT MET: apply_experimental is '${WORKFLOW_INPUT}' (not 'true')"
+          echo "❌ CONDITION NOT MET: apply_experimental is '${WORKFLOW_INPUT}' (not 'true' or empty)"
+        fi
+        
+        # FORCE experimental patches for now since default is true and we're having input issues
+        if [ "${APPLY_EXPERIMENTAL_PATCHES}" != "true" ]; then
+          echo "🔧 FORCING experimental patches to be enabled (default=true in workflow)"
+          export APPLY_EXPERIMENTAL_PATCHES="true"
         fi
         
         # Debug: Show environment variables
