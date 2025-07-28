@@ -198,18 +198,25 @@ jobs:
         export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
         
         # Set experimental patch flag for this step (must be set BEFORE brew install)
+        echo "=== DEBUGGING WORKFLOW INPUTS ==="
+        echo "Raw github.event.inputs.apply_experimental: '${{ github.event.inputs.apply_experimental }}'"
+        echo "Type check - comparing to 'true': [ '${{ github.event.inputs.apply_experimental }}' = 'true' ]"
+        
         if [ "${{ github.event.inputs.apply_experimental }}" = "true" ]; then
           export APPLY_EXPERIMENTAL_PATCHES="true"
           echo "🧪 Experimental patches will be applied (workflow input = true)"
+          echo "✅ CONDITION MET: apply_experimental is true"
         else
           export APPLY_EXPERIMENTAL_PATCHES="false"
           echo "📦 Standard build without experimental patches (workflow input = false)"
+          echo "❌ CONDITION NOT MET: apply_experimental is '${{ github.event.inputs.apply_experimental }}'"
         fi
         
         # Debug: Show environment variables
         echo "=== Environment Variables for Brew ==="
-        echo "github.event.inputs.apply_experimental: ${{ github.event.inputs.apply_experimental }}"
-        echo "APPLY_EXPERIMENTAL_PATCHES set to: ${APPLY_EXPERIMENTAL_PATCHES}"
+        echo "github.event.inputs.apply_experimental: '${{ github.event.inputs.apply_experimental }}'"
+        echo "APPLY_EXPERIMENTAL_PATCHES set to: '${APPLY_EXPERIMENTAL_PATCHES}'"
+        echo "Length of APPLY_EXPERIMENTAL_PATCHES: ${#APPLY_EXPERIMENTAL_PATCHES}"
         echo "======================================"
         
         # Install our custom QEMU 3dfx formula
