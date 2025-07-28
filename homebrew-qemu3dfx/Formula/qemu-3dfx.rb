@@ -405,8 +405,6 @@ class Qemu3dfx < Formula
     else
       ohai "Warning: sign_commit script not found - 3dfx drivers may not load properly"
     end
-      end
-    end
 
     # Apply critical EGL fix for macOS (from build script)
     if File.exist?("meson.build")
@@ -417,7 +415,6 @@ class Qemu3dfx < Formula
 
     # Apply GL_CONTEXTALPHA fix
     inreplace "hw/mesa/mglcntx_linux.c", "GL_CONTEXTALPHA", "GLX_ALPHA_SIZE" if File.exist?("hw/mesa/mglcntx_linux.c")
-  end
 
   def apply_patch_with_path_fixing(patch_file)
     # Helper method to apply patches with dynamic path fixing
@@ -798,6 +795,8 @@ class Qemu3dfx < Formula
     end
   end
 
+  end
+
   test do
     # Test version and 3dfx signature
     version_output = shell_output("#{bin}/qemu-system-x86_64 --version")
@@ -814,4 +813,5 @@ class Qemu3dfx < Formula
     display_output = shell_output("#{bin}/qemu-system-x86_64 -display help")
     assert_match "sdl", display_output, "SDL display support not found"
   end
+end
 end
