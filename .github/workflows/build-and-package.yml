@@ -194,6 +194,11 @@ jobs:
     - name: Build QEMU 3dfx with Homebrew
       if: steps.should_run.outputs.should_run == 'true'
       run: |
+        echo "🚨🚨🚨 WORKFLOW DEBUG START - EXPERIMENTAL PATCHES TROUBLESHOOTING 🚨🚨🚨"
+        echo "This debug output should be visible in GitHub Actions logs!"
+        echo "If you see this message, the workflow debugging is working."
+        echo ""
+        
         # Set commit identity for the sign_commit script
         export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
         
@@ -234,6 +239,12 @@ jobs:
           echo "🔧 FORCING experimental patches to be enabled (default=true in workflow)"
           export APPLY_EXPERIMENTAL_PATCHES="true"
         fi
+        
+        echo "🚨🚨🚨 FINAL RESULT FOR EXPERIMENTAL PATCHES 🚨🚨🚨"
+        echo "APPLY_EXPERIMENTAL_PATCHES = '${APPLY_EXPERIMENTAL_PATCHES}'"
+        echo "This should be 'true' and SDL clipboard patch should be applied!"
+        echo "🚨🚨🚨 END DEBUG SECTION 🚨🚨🚨"
+        echo ""
         
         # Debug: Show environment variables
         echo "=== Environment Variables for Brew ==="
