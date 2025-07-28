@@ -199,12 +199,17 @@ jobs:
         
         # Set experimental patch flag if requested
         if [ "${{ github.event.inputs.apply_experimental }}" = "true" ]; then
-          export APPLY_EXPERIMENTAL_PATCHES="true"
+          APPLY_EXPERIMENTAL_PATCHES="true"
           echo "🧪 Experimental patches will be applied"
         else
-          export APPLY_EXPERIMENTAL_PATCHES="false"
+          APPLY_EXPERIMENTAL_PATCHES="false"
           echo "📦 Standard build without experimental patches"
         fi
+        
+        # Debug: Show what we're passing to brew
+        echo "=== Environment Variables for Brew ==="
+        echo "APPLY_EXPERIMENTAL_PATCHES=${APPLY_EXPERIMENTAL_PATCHES}"
+        echo "======================================"
         
         # Install our custom QEMU 3dfx formula
         echo "Installing QEMU 3dfx via Homebrew formula..."
@@ -219,7 +224,8 @@ jobs:
         pkg-config --exists spice-protocol && echo "✅ spice-protocol pkg-config found" || echo "⚠️ spice-protocol pkg-config missing"
         pkg-config --exists spice-server && echo "✅ spice-server pkg-config found" || echo "⚠️ spice-server pkg-config missing"
         
-        brew install --build-from-source ./Formula/qemu-3dfx.rb
+        # Pass environment variable directly to brew install
+        APPLY_EXPERIMENTAL_PATCHES="${APPLY_EXPERIMENTAL_PATCHES}" brew install --build-from-source ./Formula/qemu-3dfx.rb
         
         # Verify installation
         echo "Verifying QEMU 3dfx installation..."
