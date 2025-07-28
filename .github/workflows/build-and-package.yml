@@ -20,7 +20,7 @@ on:
       apply_experimental:
         description: 'Apply experimental patches (SDL Clipboard) - EXPERIMENTAL'
         required: false
-        default: false
+        default: true
         type: boolean
       auto_sign:
         description: 'Automatically sign binaries during build (requires macOS runners)'
@@ -199,17 +199,33 @@ jobs:
         
         # Set experimental patch flag for this step (must be set BEFORE brew install)
         echo "=== DEBUGGING WORKFLOW INPUTS ==="
+        echo "GitHub event name: ${GITHUB_EVENT_NAME}"
         echo "Raw github.event.inputs.apply_experimental: '${{ github.event.inputs.apply_experimental }}'"
-        echo "Type check - comparing to 'true': [ '${{ github.event.inputs.apply_experimental }}' = 'true' ]"
         
-        if [ "${{ github.event.inputs.apply_experimental }}" = "true" ]; then
+        # Show all workflow inputs for debugging
+        echo "=== ALL WORKFLOW INPUTS ==="
+        echo "create_release: '${{ github.event.inputs.create_release }}'"
+        echo "target_arch: '${{ github.event.inputs.target_arch }}'"
+        echo "apply_experimental: '${{ github.event.inputs.apply_experimental }}'"
+        echo "auto_sign: '${{ github.event.inputs.auto_sign }}'"
+        echo "commit_id: '${{ github.event.inputs.commit_id }}'"
+        echo "=========================="
+        
+        # Store the input value for easier handling
+        WORKFLOW_INPUT="${{ github.event.inputs.apply_experimental }}"
+        echo "Stored workflow input: '${WORKFLOW_INPUT}'"
+        echo "Length of input: ${#WORKFLOW_INPUT}"
+        echo "Type check - comparing to 'true': [ '${WORKFLOW_INPUT}' = 'true' ]"
+        
+        # Handle GitHub Actions boolean inputs more robustly
+        if [ "${WORKFLOW_INPUT}" = "true" ]; then
           export APPLY_EXPERIMENTAL_PATCHES="true"
           echo "🧪 Experimental patches will be applied (workflow input = true)"
           echo "✅ CONDITION MET: apply_experimental is true"
         else
           export APPLY_EXPERIMENTAL_PATCHES="false"
-          echo "📦 Standard build without experimental patches (workflow input = false)"
-          echo "❌ CONDITION NOT MET: apply_experimental is '${{ github.event.inputs.apply_experimental }}'"
+          echo "📦 Standard build without experimental patches (workflow input = '${WORKFLOW_INPUT}')"
+          echo "❌ CONDITION NOT MET: apply_experimental is '${WORKFLOW_INPUT}' (not 'true')"
         fi
         
         # Debug: Show environment variables
