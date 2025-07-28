@@ -344,19 +344,8 @@ class Qemu3dfx < Formula
       ohai "QEMU 10.0.0 3dfx patch file not found at: #{patch_file}"
     end
 
-    # Step 3: Sign commit (bash ../scripts/sign_commit) - this is essential for 3dfx functionality
-    sign_script = "#{repo_root}/scripts/sign_commit"
-    if File.exist?(sign_script)
-    # Additional patches for macOS compatibility (BEFORE sign_commit)
+    # Additional patches for macOS compatibility (applied BEFORE sign_commit)
     # Apply SDL clipboard patch for QEMU 10.0.0 (conditional on experimental flag)
-    
-    # Debug: Show all environment variables related to experimental patches
-    ohai "=== Homebrew Formula Environment Check ==="
-    ohai "ENV['APPLY_EXPERIMENTAL_PATCHES'] = '#{ENV["APPLY_EXPERIMENTAL_PATCHES"]}'"
-    ohai "ENV['APPLY_EXPERIMENTAL_PATCHES'].class = #{ENV["APPLY_EXPERIMENTAL_PATCHES"].class}"
-    ohai "All ENV keys containing 'EXPERIMENTAL': #{ENV.keys.select { |k| k.include?("EXPERIMENTAL") }}"
-    ohai "=============================================="
-    
     if ENV["APPLY_EXPERIMENTAL_PATCHES"] == "true"
       ohai "Experimental patches enabled - applying SDL clipboard patch"
       sdl_clipboard_patch = "#{repo_root}/patches/qemu-10.0.0-sdl-clipboard-simple-safe.patch"
@@ -381,14 +370,12 @@ class Qemu3dfx < Formula
         ohai "Applying QEMU Virgl3D patch: #{File.basename(patch)}"
         apply_patch_with_path_fixing(patch)
       end
-    else
-      ohai "Virgl3D patches directory not found: #{virgl_patches_dir}"
     end
 
-    # Step 3: Run sign_commit script AFTER all patches are applied
+    # Step 3: Sign commit (bash ../scripts/sign_commit) - AFTER all patches are applied
     sign_script = "#{repo_root}/scripts/sign_commit"
     if File.exist?(sign_script)
-      ohai "Step 3: Running sign_commit script (upstream sequence: bash ../scripts/sign_commit)"
+      ohai "Step 3: Running sign_commit script AFTER all patches (upstream sequence: bash ../scripts/sign_commit)"
       # The sign_commit script embeds git commit info from the qemu-3dfx repository
       # and ensures proper signature matching between QEMU and 3dfx drivers
       
@@ -794,8 +781,6 @@ class Qemu3dfx < Formula
       cp sign_file, "#{sign_dir}/qemu.sign"
       ohai "Copied qemu.sign to #{sign_dir}/"
     end
-  end
-
   end
 
   test do
