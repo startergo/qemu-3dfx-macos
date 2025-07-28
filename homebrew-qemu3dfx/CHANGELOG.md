@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Installation and test scripts
 - Comprehensive documentation
 
+### Fixed
+- Fixed patch application order: sign_commit script now runs after all patches
+- Fixed environment variable propagation for experimental patches in GitHub Actions
+- SDL clipboard patch now properly applies when experimental patches are enabled
+
 ### Features
 - 3dfx Voodoo1/2/Banshee device emulation
 - Virgl3D OpenGL acceleration support

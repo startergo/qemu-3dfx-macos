@@ -284,10 +284,12 @@ class Qemu3dfx < Formula
   def apply_3dfx_patches
     ohai "=== Starting apply_3dfx_patches function ==="
     ohai "Working directory: #{Dir.pwd}"
-    ohai "Following upstream qemu-3dfx build sequence exactly:"
+    ohai "Modified qemu-3dfx build sequence (sign_commit moved to AFTER all patches):"
     ohai "1. Copy 3dfx/mesa source files (rsync -r ../qemu-0/hw/3dfx ../qemu-1/hw/mesa ./hw/)"
     ohai "2. Apply 3dfx Mesa/Glide patch (patch -p0 -i ../00-qemu100x-mesa-glide.patch)"
-    ohai "3. Run sign_commit script (bash ../scripts/sign_commit)"
+    ohai "3. Apply experimental patches (if enabled)"
+    ohai "4. Apply Virgl3D patches"
+    ohai "5. Run sign_commit script AFTER all patches (modified from upstream)"
     
     # Initialize git repository for patch application (required for git apply)
     unless Dir.exist?(".git")
@@ -346,8 +348,11 @@ class Qemu3dfx < Formula
 
     # Additional patches for macOS compatibility (applied BEFORE sign_commit)
     # Apply SDL clipboard patch for QEMU 10.0.0 (conditional on experimental flag)
-    if ENV["APPLY_EXPERIMENTAL_PATCHES"] == "true"
-      ohai "Experimental patches enabled - applying SDL clipboard patch"
+    experimental_patches_env = ENV["APPLY_EXPERIMENTAL_PATCHES"]
+    ohai "Environment variable APPLY_EXPERIMENTAL_PATCHES = '#{experimental_patches_env}'"
+    
+    if experimental_patches_env == "true"
+      ohai "✅ Experimental patches enabled - applying SDL clipboard patch"
       sdl_clipboard_patch = "#{repo_root}/patches/qemu-10.0.0-sdl-clipboard-simple-safe.patch"
       if File.exist?(sdl_clipboard_patch)
         ohai "Applying SDL clipboard patch for QEMU 10.0.0"
@@ -356,8 +361,9 @@ class Qemu3dfx < Formula
         ohai "SDL clipboard patch not found at: #{sdl_clipboard_patch}"
       end
     else
-      ohai "Experimental patches disabled - skipping SDL clipboard patch"
+      ohai "❌ Experimental patches disabled - skipping SDL clipboard patch"
       ohai "To enable: set APPLY_EXPERIMENTAL_PATCHES=true in workflow"
+      ohai "Current value: APPLY_EXPERIMENTAL_PATCHES='#{experimental_patches_env}'"
     end
 
     # Apply Virgl3D patches for QEMU (SDL2+OpenGL compatibility on macOS)
