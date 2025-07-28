@@ -298,7 +298,9 @@ jobs:
         echo "Checking for SPICE support in binary:"
         strings $(which qemu-system-i386) | grep -i spice | head -5 || echo "No SPICE strings found in binary"
 
-        echo "✅ QEMU 3dfx installed successfully via Homebrew"    - name: Verify build
+        echo "✅ QEMU 3dfx installed successfully via Homebrew"
+
+    - name: Verify build
       if: steps.should_run.outputs.should_run == 'true'
       run: |
         # Check Homebrew installation paths
