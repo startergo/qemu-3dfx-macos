@@ -7,10 +7,13 @@ MANUAL_COMMIT=`echo $@ | sed -n "s/.*\-commit=\([a-f0-9]*\).*/\1/p"`
 if [ -z $GIT ]; then GIT=.; else shift; fi;
 ARG=$@; if [ -z $ARG ]; then ARG=HEAD; fi
 
-# Use manual commit if specified, otherwise get from git
+# Use manual commit if specified, otherwise check environment variable, otherwise get from git
 if [ -n "$MANUAL_COMMIT" ]; then
     COMMIT_ID="$MANUAL_COMMIT"
     echo "Using manual commit ID: $MANUAL_COMMIT"
+elif [ -n "$COMMIT_ID_OVERRIDE" ]; then
+    COMMIT_ID="$COMMIT_ID_OVERRIDE"
+    echo "Using environment commit ID override: $COMMIT_ID_OVERRIDE"
 else
     COMMIT_ID=`cd $GIT; git rev-parse $ARG | sed "s/\(.......\).*/\1/"`
     echo "Using git commit ID: $COMMIT_ID"

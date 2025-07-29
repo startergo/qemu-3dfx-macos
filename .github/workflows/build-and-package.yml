@@ -205,7 +205,14 @@ jobs:
         echo ""
         
         # Set commit identity for the sign_commit script
-        export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
+        if [ -n "${{ github.event.inputs.commit_id }}" ]; then
+          export COMMIT_ID_OVERRIDE="${{ github.event.inputs.commit_id }}"
+          export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
+          echo "Using custom commit ID: ${{ github.event.inputs.commit_id }} (short: ${COMMIT_SHORT})"
+        else
+          export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
+          echo "Using auto-detected commit ID: ${COMMIT_SHORT}"
+        fi
         
         # Set experimental patch flag for this step (must be set BEFORE brew install)
         echo "=== DEBUGGING WORKFLOW INPUTS ==="
@@ -502,9 +509,18 @@ jobs:
           cp "qemu.rsrc" "${STAGE_DIR}/opt/homebrew/sign/"
         fi
         
-        # Update signing script with current commit
+        # Update signing script with current commit and embed the commit ID
         if [ -f "${STAGE_DIR}/opt/homebrew/sign/qemu.sign" ]; then
+          # Update the hardcoded repository name pattern
           sed -i '' "s/qemu-3dfx-macos@[a-f0-9]*/qemu-3dfx-macos@${COMMIT_SHORT}/g" "${STAGE_DIR}/opt/homebrew/sign/qemu.sign"
+          
+          # Embed the actual commit ID into the script so it doesn't need git or env vars
+          sed -i '' "s/GIT_HASH=\"2ed207b\"/GIT_HASH=\"${COMMIT_SHORT}\"/" "${STAGE_DIR}/opt/homebrew/sign/qemu.sign"
+          
+          # Also update any other fallback commit references
+          sed -i '' "s/\"2ed207b\"/\"${COMMIT_SHORT}\"/g" "${STAGE_DIR}/opt/homebrew/sign/qemu.sign"
+          
+          echo "✅ Updated qemu.sign script with commit ID: ${COMMIT_SHORT}"
         fi
         
         # Create symlinks in /usr/local/lib for compatibility (absolute paths)
@@ -545,7 +561,14 @@ jobs:
         cd "${STAGE_DIR}/opt/homebrew/sign"
         
         # Set environment variable for the signing script
-        export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
+        if [ -n "${{ github.event.inputs.commit_id }}" ]; then
+          export COMMIT_ID_OVERRIDE="${{ github.event.inputs.commit_id }}"
+          export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
+          echo "Using custom commit ID for signing: ${{ github.event.inputs.commit_id }} (short: ${COMMIT_SHORT})"
+        else
+          export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
+          echo "Using auto-detected commit ID for signing: ${COMMIT_SHORT}"
+        fi
         
         # Run the signing script
         echo "Running automatic code signing..."
