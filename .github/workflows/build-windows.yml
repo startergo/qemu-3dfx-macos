@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       apply_experimental:
-        description: 'Apply experimental patches (SDL Clipboard)'
+        description: 'Apply experimental patches (SDL Clipboard) - EXPERIMENTAL'
         required: false
-        default: false
+        default: true
         type: boolean
 
 jobs:
@@ -139,6 +139,11 @@ jobs:
       - name: Apply patches and prepare source
         shell: msys2 {0}
         run: |
+          echo "🚨🚨🚨 WINDOWS WORKFLOW DEBUG START - EXPERIMENTAL PATCHES TROUBLESHOOTING 🚨🚨🚨"
+          echo "This debug output should be visible in GitHub Actions logs!"
+          echo "If you see this message, the Windows workflow debugging is working."
+          echo ""
+          
           echo "Adding 3dfx and mesa files to QEMU source"
           rsync -rv qemu-0/hw/3dfx qemu-1/hw/mesa qemu-${{ env.QEMU_VERSION }}/hw/
           cd qemu-${{ env.QEMU_VERSION }}
@@ -146,17 +151,72 @@ jobs:
           echo "Applying main QEMU-3dfx patch: ${{ env.PATCH_FILE }}"
           patch -p0 -i ../${{ env.PATCH_FILE }}
           
-          if [[ "${{ env.APPLY_EXPERIMENTAL }}" == "true" ]]; then
-            echo "Applying experimental SDL Clipboard patch"
-            if [[ -f ../qemu-exp/SDL-Clipboard.patch ]]; then
-              patch -p1 -i ../qemu-exp/SDL-Clipboard.patch
-              echo "SDL Clipboard patch applied successfully"
+          echo "=== DEBUGGING WINDOWS WORKFLOW INPUTS ==="
+          echo "GitHub event name: ${GITHUB_EVENT_NAME}"
+          echo "Raw github.event.inputs.apply_experimental: '${{ github.event.inputs.apply_experimental }}'"
+          echo "Environment APPLY_EXPERIMENTAL: '${APPLY_EXPERIMENTAL}'"
+          
+          # Store the input value for easier handling
+          WORKFLOW_INPUT="${{ github.event.inputs.apply_experimental }}"
+          echo "Stored workflow input: '${WORKFLOW_INPUT}'"
+          echo "Length of input: ${#WORKFLOW_INPUT}"
+          echo "Type check - comparing to 'true': [ '${WORKFLOW_INPUT}' = 'true' ]"
+          
+          # Handle GitHub Actions boolean inputs more robustly
+          # Note: Windows workflow has default=false, different from macOS
+          if [[ "${WORKFLOW_INPUT}" == "true" ]]; then
+            APPLY_EXPERIMENTAL_PATCHES="true"
+            echo "🧪 Experimental patches will be applied (workflow input = '${WORKFLOW_INPUT}')"
+            echo "✅ CONDITION MET: apply_experimental is true"
+          else
+            APPLY_EXPERIMENTAL_PATCHES="false"
+            echo "📦 Standard build without experimental patches (workflow input = '${WORKFLOW_INPUT}' or default=false)"
+            echo "❌ CONDITION NOT MET: apply_experimental is '${WORKFLOW_INPUT}' (not 'true')"
+          fi
+          
+          echo "🚨🚨🚨 FINAL RESULT FOR EXPERIMENTAL PATCHES (WINDOWS) 🚨🚨🚨"
+          echo "APPLY_EXPERIMENTAL_PATCHES = '${APPLY_EXPERIMENTAL_PATCHES}'"
+          
+          if [[ "${APPLY_EXPERIMENTAL_PATCHES}" == "true" ]]; then
+            echo "🧪 Applying experimental SDL Clipboard patch for Windows"
+            
+            # Look for SDL clipboard patches in order of preference
+            SDL_PATCH_FOUND=false
+            
+            # Check for version-specific patches first
+            for patch_file in "../qemu-exp/SDL-Clipboard-${{ env.QEMU_VERSION }}.patch" \
+                              "../qemu-exp/SDL-Clipboard-${{ env.QEMU_VERSION }}-fixed.patch" \
+                              "../qemu-exp/SDL-Clipboard.patch" \
+                              "../SDL-Clipboard.patch"; do
+              if [[ -f "$patch_file" ]]; then
+                echo "🎯 Found SDL Clipboard patch: $patch_file"
+                
+                # Try to apply the patch
+                if patch -p1 -i "$patch_file"; then
+                  echo "✅ SDL Clipboard patch applied successfully: $patch_file"
+                  SDL_PATCH_FOUND=true
+                  break
+                else
+                  echo "⚠️ Failed to apply patch: $patch_file, trying next..."
+                fi
+              else
+                echo "📂 Patch not found: $patch_file"
+              fi
+            done
+            
+            if [[ "${SDL_PATCH_FOUND}" == "true" ]]; then
+              echo "🎉 SDL Clipboard patch successfully applied for Windows build!"
             else
-              echo "SDL Clipboard patch not found, skipping"
+              echo "❌ No SDL Clipboard patch could be applied - build will continue without experimental features"
+              echo "Available patch files in qemu-exp/:"
+              ls -la ../qemu-exp/SDL-Clipboard* 2>/dev/null || echo "No SDL-Clipboard patches found"
             fi
           else
-            echo "Skipping experimental patches"
+            echo "📦 Skipping experimental patches (apply_experimental = false or not set)"
           fi
+          
+          echo "🚨🚨🚨 END DEBUG SECTION (WINDOWS) 🚨🚨🚨"
+          echo ""
           
           echo "Signing commit ID"
           bash ../scripts/sign_commit
@@ -197,7 +257,7 @@ jobs:
           bash ../scripts/sign_binary.sh
           
           echo "Creating version info"
-          echo "QEMU-3dfx-macOS (Windows Build)" > version.txt
+          echo "QEMU-3dfx (Windows Build)" > version.txt
           echo "=================================================" >> version.txt
           echo "GitHub Actions Artifact Build" >> version.txt
           echo "Repository: startergo/qemu-3dfx-macos" >> version.txt
@@ -206,7 +266,8 @@ jobs:
           echo "Build System: ${{ matrix.msystem }}" >> version.txt
           echo "Build Date: $(date)" >> version.txt
           echo "Commit: ${{ github.sha }}" >> version.txt
-          echo "Experimental patches: ${{ env.APPLY_EXPERIMENTAL }}" >> version.txt
+          echo "Experimental patches: ${{ github.event.inputs.apply_experimental || 'true' }}" >> version.txt
+          echo "SDL Clipboard patch: ${{ github.event.inputs.apply_experimental == 'true' && 'APPLIED' || 'NOT APPLIED' }}" >> version.txt
           unix2dos version.txt
           echo "QEMU installation completed at $(date)"
 
@@ -307,16 +368,31 @@ jobs:
         run: |
           echo "=== Build Summary for ${{ matrix.msystem }} ==="
           echo "QEMU Version: ${{ env.QEMU_VERSION }}"
-          echo "Patch Applied: ${{ env.PATCH_FILE }}"
-          echo "Experimental patches: ${{ env.APPLY_EXPERIMENTAL }}"
+          echo "Main Patch Applied: ${{ env.PATCH_FILE }}"
+          echo "Experimental patches requested: ${{ github.event.inputs.apply_experimental || 'true' }}"
+          echo "SDL Clipboard patch: ${{ github.event.inputs.apply_experimental == 'true' && 'APPLIED' || 'NOT APPLIED' }}"
           echo "Build System: ${{ matrix.msystem }}"
           echo "Package Prefix: ${{ matrix.pkg_prefix }}"
           echo "Artifact Suffix: ${{ matrix.artifact_suffix }}"
           echo "Build completed at: $(date)"
+          
           if [[ -d "install_dir" ]]; then
-            echo "QEMU binaries:"
+            echo ""
+            echo "=== QEMU binaries built ==="
             find install_dir -name "qemu-*.exe" -exec basename {} \;
           fi
+          
           if [[ -f "wrappers/wrappers.iso" ]]; then
+            echo ""
+            echo "=== Wrapper ISO created ==="
             echo "Wrapper ISO size: $(du -h wrappers/wrappers.iso | cut -f1)"
+          fi
+          
+          echo ""
+          echo "=== Patch Status Summary ==="
+          echo "✅ Main 3dfx/Mesa patch: APPLIED (${{ env.PATCH_FILE }})"
+          if [[ "${{ github.event.inputs.apply_experimental }}" == "true" ]]; then
+            echo "🧪 SDL Clipboard patch: APPLIED (experimental)"
+          else
+            echo "📦 SDL Clipboard patch: NOT APPLIED (standard build)"
           fi
