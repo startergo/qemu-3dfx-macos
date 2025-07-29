@@ -726,7 +726,7 @@ jobs:
   create-release:
     name: Create Release
     runs-on: macos-latest
-    needs: [build, test-installation]
+    needs: build
     if: github.event.inputs.create_release == 'true'
     
     steps:
