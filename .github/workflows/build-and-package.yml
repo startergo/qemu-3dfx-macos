@@ -1,5 +1,10 @@
 name: Build and Package QEMU 3dfx
 
+# Required permissions for creating releases
+permissions:
+  contents: write
+  packages: read
+
 on:
   workflow_dispatch:
     inputs:
@@ -758,7 +763,17 @@ jobs:
         find all-artifacts -name "*.tar.zst" -exec cp {} release-assets/ \;
         find all-artifacts -name "*.sha256" -exec cp {} release-assets/ \;
         
+        echo "=== Release assets prepared ==="
         ls -la release-assets/
+        
+        # Verify we have at least one tarball
+        TARBALL_COUNT=$(find release-assets -name "*.tar.zst" | wc -l)
+        if [ "$TARBALL_COUNT" -eq 0 ]; then
+          echo "❌ No tarballs found for release!"
+          exit 1
+        else
+          echo "✅ Found $TARBALL_COUNT tarballs for release"
+        fi
         
     - name: Generate release notes
       run: |
@@ -826,7 +841,7 @@ jobs:
         echo "RELEASE_TAG=${RELEASE_TAG}" >> $GITHUB_ENV
         
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: qemu-3dfx-homebrew-${{ github.run_number }}
         name: QEMU 3dfx Homebrew Package ${{ github.run_number }}
@@ -834,5 +849,7 @@ jobs:
         files: release-assets/*
         draft: false
         prerelease: true
+        make_latest: false
+        fail_on_unmatched_files: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
