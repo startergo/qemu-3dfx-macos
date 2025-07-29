@@ -1,8 +1,18 @@
 name: Build QEMU-3dfx for Windows
 
+# Required permissions for creating releases
+permissions:
+  contents: write
+  packages: read
+
 on:
   workflow_dispatch:
     inputs:
+      create_release:
+        description: 'Create GitHub release'
+        required: false
+        default: false
+        type: boolean
       apply_experimental:
         description: 'Apply experimental patches (SDL Clipboard) - EXPERIMENTAL'
         required: false
@@ -183,11 +193,13 @@ jobs:
             # Look for SDL clipboard patches in order of preference
             SDL_PATCH_FOUND=false
             
-            # Check for version-specific patches first
-            for patch_file in "../qemu-exp/SDL-Clipboard-${{ env.QEMU_VERSION }}.patch" \
-                              "../qemu-exp/SDL-Clipboard-${{ env.QEMU_VERSION }}-fixed.patch" \
-                              "../qemu-exp/SDL-Clipboard.patch" \
-                              "../SDL-Clipboard.patch"; do
+            # Check for version-specific patches first (correct location: patches/ directory)
+            for patch_file in "../patches/qemu-${{ env.QEMU_VERSION }}-sdl-clipboard-fixed.patch" \
+                              "../patches/qemu-${{ env.QEMU_VERSION }}-sdl-clipboard-simple-safe.patch" \
+                              "../patches/qemu-10.0.0-sdl-clipboard-fixed.patch" \
+                              "../patches/qemu-10.0.0-sdl-clipboard-simple-safe.patch" \
+                              "../patches/SDL-Clipboard-${{ env.QEMU_VERSION }}.patch" \
+                              "../patches/SDL-Clipboard.patch"; do
               if [[ -f "$patch_file" ]]; then
                 echo "🎯 Found SDL Clipboard patch: $patch_file"
                 
@@ -208,8 +220,10 @@ jobs:
               echo "🎉 SDL Clipboard patch successfully applied for Windows build!"
             else
               echo "❌ No SDL Clipboard patch could be applied - build will continue without experimental features"
-              echo "Available patch files in qemu-exp/:"
-              ls -la ../qemu-exp/SDL-Clipboard* 2>/dev/null || echo "No SDL-Clipboard patches found"
+              echo "Available patch files in patches/:"
+              ls -la ../patches/qemu-*sdl-clipboard* 2>/dev/null || echo "No SDL-Clipboard patches found in patches/"
+              echo "Available patch files in qemu-exp/ (legacy location):"
+              ls -la ../qemu-exp/SDL-Clipboard* 2>/dev/null || echo "No SDL-Clipboard patches found in qemu-exp/"
             fi
           else
             echo "📦 Skipping experimental patches (apply_experimental = false or not set)"
@@ -337,8 +351,8 @@ jobs:
             [[ -f readme.txt ]] && unix2dos readme.txt
             [[ -f license.txt ]] && unix2dos license.txt
             
-            # Sign wrapper binaries
-            bash ../../scripts/qemu.sign
+            # Sign wrapper binaries using Windows-specific script
+            bash ../../scripts/sign_binary.sh
             
             cd ..
             echo "Creating wrapper ISO"
@@ -396,3 +410,131 @@ jobs:
           else
             echo "📦 SDL Clipboard patch: NOT APPLIED (standard build)"
           fi
+
+  create-windows-release:
+    name: Create Windows Release
+    runs-on: windows-latest
+    needs: windows-build
+    if: github.event.inputs.create_release == 'true'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+        
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: all-artifacts/
+        
+    - name: Prepare release assets
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path release-assets
+        
+        # Collect all Windows artifacts
+        Get-ChildItem -Path all-artifacts -Recurse -Include "*.zip","*.tar.*","*.iso" | Copy-Item -Destination release-assets/
+        
+        Write-Host "=== Windows release assets prepared ==="
+        Get-ChildItem release-assets/ | Format-Table Name, Length
+        
+        # Verify we have at least one artifact
+        $artifactCount = (Get-ChildItem release-assets/).Count
+        if ($artifactCount -eq 0) {
+          Write-Host "❌ No artifacts found for Windows release!"
+          exit 1
+        } else {
+          Write-Host "✅ Found $artifactCount artifacts for Windows release"
+        }
+        
+    - name: Generate Windows release notes
+      shell: pwsh
+      run: |
+        $releaseTag = "windows-v$(Get-Date -Format 'yyyyMMdd')-$env:GITHUB_RUN_NUMBER"
+        $qemuVersion = "10.0.2"  # Match the QEMU_VERSION from env
+        
+        # Create release notes content
+        $content = @()
+        $content += "# QEMU 3dfx Windows Build $releaseTag"
+        $content += ""
+        $content += "This release includes QEMU $qemuVersion with 3dfx Glide and Mesa GL pass-through support for Windows."
+        $content += ""
+        $content += "## Build Information"
+        $content += "- **Build Date**: $(Get-Date -Format 'yyyy-MM-dd')"
+        $content += "- **QEMU Version**: $qemuVersion"
+        $content += "- **Run Number**: $env:GITHUB_RUN_NUMBER"
+        $content += "- **Commit**: $env:GITHUB_SHA"
+        $content += ""
+        $content += "## Supported Windows Builds"
+        $content += "- **MINGW64**: Standard MinGW-w64 x86_64 build"
+        $content += "- **UCRT64**: Universal C Runtime x86_64 build (recommended for Windows 10+)"
+        $content += ""
+        $content += "## Installation Instructions"
+        $content += ""
+        $content += "1. Download the appropriate build for your system"
+        $content += "2. Extract the archive to your desired location"
+        $content += "3. The binaries will be in the main directory"
+        $content += "4. Wrapper ISO (if available) contains guest OS drivers and utilities"
+        $content += ""
+        $content += "## Package Contents"
+        $content += ""
+        $content += "Each Windows build includes:"
+        $content += "- QEMU Binaries: qemu-system-i386.exe, qemu-system-x86_64.exe, qemu-img.exe"
+        $content += "- Version Info: build-timestamp.txt, version.txt with detailed build information"
+        $content += "- Wrapper ISO: Guest OS drivers and utilities (if built successfully)"
+        $content += ""
+        $content += "## Usage Examples"
+        $content += ""
+        $content += "### 3dfx Glide Support (DOS/Windows 9x)"
+        $content += '```batch'
+        $content += "qemu-system-i386.exe \"
+        $content += "  -machine pc-i440fx-2.1 \"
+        $content += "  -cpu pentium2 \"
+        $content += "  -m 128 \"
+        $content += "  -device 3dfx,voodoo=voodoo2 \"
+        $content += "  -hda dos.img"
+        $content += '```'
+        $content += ""
+        $content += "### Modern Windows with Mesa OpenGL"
+        $content += '```batch'
+        $content += "qemu-system-x86_64.exe \"
+        $content += "  -machine pc \"
+        $content += "  -cpu host \"
+        $content += "  -m 2048 \"
+        $content += "  -device virtio-vga-gl \"
+        $content += "  -display sdl,gl=on \"
+        $content += "  -hda windows.img"
+        $content += '```'
+        $content += ""
+        $content += "## Experimental Features"
+        $experimentalInput = "${{ github.event.inputs.apply_experimental }}"
+        $experimentalStatus = if ($experimentalInput -eq 'true') { 'ENABLED' } else { 'DISABLED' }
+        $content += "- **SDL Clipboard**: $experimentalStatus"
+        $content += "  - Allows clipboard sharing between host and guest"
+        $content += ""
+        $content += "## Files in this Release"
+        
+        # Add file list
+        Get-ChildItem release-assets/ | ForEach-Object {
+          $size = [math]::Round($_.Length / 1MB, 2)
+          $content += "- $($_.Name) ($size MB)"
+        }
+
+        # Write to file
+        $content | Out-File -FilePath release-notes.md -Encoding UTF8
+        
+        # Store the release tag for the next step  
+        Write-Output "WINDOWS_RELEASE_TAG=$releaseTag" | Out-File -FilePath $env:GITHUB_ENV -Append
+        
+    - name: Create GitHub Release for Windows
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: qemu-3dfx-windows-${{ github.run_number }}
+        name: QEMU 3dfx Windows Build ${{ github.run_number }}
+        body_path: release-notes.md
+        files: release-assets/*
+        draft: false
+        prerelease: true
+        make_latest: false
+        fail_on_unmatched_files: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
