@@ -306,7 +306,7 @@ static SDL_GLContext ctx[MAX_LVLCNTX];
 GL_RENDER_TEXTURE_VAR;
 
 static HPBUFFERARB hPbuffer[MAX_PBUFFER];
-static int wnd_ready;
+static int wnd_ready, self_ctx;
 static int cAlphaBits, cDepthBits, cStencilBits;
 static int cAuxBuffers, cSampleBuf[2];
 
@@ -361,24 +361,30 @@ void MGLDeleteContext(int level)
 {
     int n = (level)? ((level % MAX_LVLCNTX)? (level % MAX_LVLCNTX):1):level;
     SDL_GL_MakeCurrent(window, NULL);
-    if (n == 0) {
+    if (n) {
+        GL_DELETECONTEXT(ctx[n]);
+    }
+    else {
         for (int i = MAX_LVLCNTX; i > 1;) {
             if (ctx[--i]) {
                 GL_DELETECONTEXT(ctx[i]);
             }
         }
         MesaBlitFree();
-    }
-    GL_DELETECONTEXT(ctx[n]);
-    if (!n)
         MGLActivateHandler(0, 0);
+    }
 }
 
 void MGLWndRelease(void)
 {
     if (window) {
+        if (self_ctx && ctx[0]) {
+            SDL_GL_MakeCurrent(window, NULL);
+            SDL_GL_DeleteContext(ctx[0]);
+        }
         MesaInitGammaRamp();
         mesa_release_window();
+        ctx[0] = 0;
         window = 0;
     }
 }
@@ -392,12 +398,13 @@ int MGLCreateContext(uint32_t gDC)
     }
     else {
         SDL_GL_MakeCurrent(window, NULL);
-        for (i = MAX_LVLCNTX; i > 0;) {
+        for (i = MAX_LVLCNTX; i > 1;) {
             if (ctx[--i]) {
                 GL_DELETECONTEXT(ctx[i]);
             }
         }
-        GL_CREATECONTEXT(ctx[0]);
+        if (!ctx[0])
+            GL_CREATECONTEXT(ctx[0]);
         ret = (ctx[0])? 0:1;
     }
     return ret;
@@ -456,11 +463,22 @@ int MGLSetPixelFormat(int fmt, const void *p)
     if (!window)
         MGLPresetPixelFormat();
     else {
-        ctx[0] = (ctx[0])? ctx[0]:SDL_GL_GetCurrentContext();
-        ctx[0] = (ctx[0])? ctx[0]:SDL_GL_CreateContext(window);
-        if (ctx[0]) {
+        self_ctx = 0;
+        if (!ctx[0]) {
+            ctx[0] = SDL_GL_GetCurrentContext();
+            if (!ctx[0]) {
+                ctx[0] = SDL_GL_CreateContext(window);
+                self_ctx = (ctx[0])? 1:0;
+            }
+        }
+        if (!ctx[0])
+            fprintf(stderr, "%s:%d %s\n", __FILE__, __LINE__, SDL_GetError());
+        else {
             int cColors[3];
-            SDL_GL_MakeCurrent(window, ctx[0]);
+            if (SDL_GL_MakeCurrent(window, ctx[0])) {
+                fprintf(stderr, "%s:%d %s\n", __FILE__, __LINE__, SDL_GetError());
+                return 0;
+            }
             SDL_GL_GetAttribute(SDL_GL_ALPHA_SIZE, &cAlphaBits);
             SDL_GL_GetAttribute(SDL_GL_BLUE_SIZE, &cColors[0]);
             SDL_GL_GetAttribute(SDL_GL_GREEN_SIZE, &cColors[1]);
@@ -488,10 +506,21 @@ int MGLDescribePixelFormat(int fmt, unsigned int sz, void *p)
     if (!window)
         MGLPresetPixelFormat();
     else {
-        ctx[0] = (ctx[0])? ctx[0]:SDL_GL_GetCurrentContext();
-        ctx[0] = (ctx[0])? ctx[0]:SDL_GL_CreateContext(window);
-        if (ctx[0]) {
-            SDL_GL_MakeCurrent(window, ctx[0]);
+        self_ctx = 0;
+        if (!ctx[0]) {
+            ctx[0] = SDL_GL_GetCurrentContext();
+            if (!ctx[0]) {
+                ctx[0] = SDL_GL_CreateContext(window);
+                self_ctx = (ctx[0])? 1:0;
+            }
+        }
+        if (!ctx[0])
+            fprintf(stderr, "%s:%d %s\n", __FILE__, __LINE__, SDL_GetError());
+        else {
+            if (SDL_GL_MakeCurrent(window, ctx[0])) {
+                fprintf(stderr, "%s:%d %s\n", __FILE__, __LINE__, SDL_GetError());
+                return 0;
+            }
             SDL_GL_GetAttribute(SDL_GL_DEPTH_SIZE, &cDepthBits);
             SDL_GL_GetAttribute(SDL_GL_STENCIL_SIZE, &cStencilBits);
             glGetIntegerv(GL_AUX_BUFFERS, &cAuxBuffers);
@@ -655,9 +684,11 @@ void MGLFuncHandler(const char *name)
             argsp[1] = (argsp[0])? i:0;
             if (argsp[1] == 0) {
                 SDL_GL_MakeCurrent(window, NULL);
-                GL_DELETECONTEXT(ctx[0]);
-                GL_CONTEXTATTRIB(ctx[0]);
-                GL_CREATECONTEXT(ctx[0]);
+                if (CompareAttribArray((const int *)&argsp[2])) {
+                    GL_DELETECONTEXT(ctx[0]);
+                    GL_CONTEXTATTRIB(ctx[0]);
+                    GL_CREATECONTEXT(ctx[0]);
+                }
                 ret = (ctx[0])? 1:0;
             }
             else {
