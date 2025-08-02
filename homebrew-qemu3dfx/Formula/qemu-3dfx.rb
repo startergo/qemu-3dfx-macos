@@ -215,7 +215,7 @@ class Qemu3dfx < Formula
              "--disable-tcg-interpreter",
              "--disable-guest-agent",
              "--disable-docs"
-             # Note: Intentionally minimal - QEMU will auto-detect available features
+             # Note: SDL clipboard functionality is enabled by the patch, not by configure flag
 
       ohai "Building and installing QEMU 3dfx (upstream: make install)..."
       
@@ -360,12 +360,14 @@ class Qemu3dfx < Formula
     
     if use_experimental
       ohai "✅ Experimental patches enabled - applying SDL clipboard patch"
-      sdl_clipboard_patch = "#{repo_root}/patches/qemu-10.0.0-sdl-clipboard-simple-safe.patch"
+      
+      # Apply the cleaned SDL clipboard patch for QEMU 10.0.0
+      sdl_clipboard_patch = "#{repo_root}/patches/qemu-10.0.0-sdl-clipboard-mailing-list-clean.patch"
       if File.exist?(sdl_clipboard_patch)
-        ohai "Applying SDL clipboard patch for QEMU 10.0.0"
+        ohai "Applying cleaned SDL clipboard patch: #{File.basename(sdl_clipboard_patch)}"
         apply_patch_with_path_fixing(sdl_clipboard_patch)
       else
-        ohai "SDL clipboard patch not found at: #{sdl_clipboard_patch}"
+        ohai "Warning: SDL clipboard patch not found at #{sdl_clipboard_patch}"
       end
     else
       ohai "❌ Experimental patches disabled - skipping SDL clipboard patch"
@@ -426,9 +428,8 @@ class Qemu3dfx < Formula
     needs_fixing = false
 
     # Check if patch contains common path issues that need fixing
-    if patch_content.match?(%r{\b(?:orig/)?(?:qemu|virglrenderer)-[\d.]+/}) ||
-       patch_content.match?(%r{\+\+\+ [ab]/.*/}) ||
-       patch_content.match?(%r{--- [ab]/.*/})
+    # Only look for version-specific paths, not standard git diff paths
+    if patch_content.match?(%r{\b(?:orig/)?(?:qemu|virglrenderer)-[\d.]+/})
       needs_fixing = true
     end
 
@@ -436,11 +437,9 @@ class Qemu3dfx < Formula
       # Create a fixed version of the patch
       fixed_patch = buildpath/"#{File.basename(patch_file, ".patch")}_fixed.patch"
 
-      # Apply common path fixes
+      # Apply path fixes - only remove version prefixes, preserve git diff format
       fixed_content = patch_content
-                      .gsub(%r{\b(?:orig/)?(?:qemu|virglrenderer)-[\d.]+/}, "") # Remove version prefixes
-                      .gsub(%r{\+\+\+ [ab]/}, "+++ ") # Fix git diff prefixes
-                      .gsub(%r{--- [ab]/}, "--- ")
+                      .gsub(%r{\b(?:orig/)?(?:qemu|virglrenderer)-[\d.]+/}, "") # Remove version prefixes only
 
       # Write and apply fixed patch
       File.write(fixed_patch, fixed_content)
@@ -735,6 +734,14 @@ class Qemu3dfx < Formula
       cp_r "/opt/X11/include/KHR", "#{local_x11_include}/"
     end
     
+    # Add Homebrew pixman headers (critical for QEMU compilation)
+    pixman_include = "#{HOMEBREW_PREFIX}/include/pixman-1"
+    if Dir.exist?(pixman_include)
+      ohai "Adding Homebrew pixman headers to include path"
+      mkdir_p "#{local_x11_include}/pixman-1"
+      cp_r "#{pixman_include}/.", "#{local_x11_include}/pixman-1/"
+    end
+    
     # Add our local headers to the include path
     ENV.append "CPPFLAGS", "-I#{local_x11_include}"
     ENV.append "CFLAGS", "-I#{local_x11_include}"
@@ -775,6 +782,18 @@ class Qemu3dfx < Formula
       ohai "✅ KHR/khrplatform.h found"
     else
       ohai "⚠️ KHR/khrplatform.h missing"
+    end
+    
+    if File.exist?("#{local_x11_include}/pixman-1/pixman.h")
+      ohai "✅ pixman.h found"
+    else
+      ohai "⚠️ pixman.h missing"
+    end
+    
+    if File.exist?("#{local_x11_include}/pixman-1/pixman-version.h")
+      ohai "✅ pixman-version.h found"
+    else
+      ohai "⚠️ pixman-version.h missing"
     end
   end
 

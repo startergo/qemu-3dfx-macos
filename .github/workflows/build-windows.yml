@@ -196,40 +196,23 @@ jobs:
           if [[ "${APPLY_EXPERIMENTAL_PATCHES}" == "true" ]]; then
             echo "🧪 Applying experimental SDL Clipboard patch for Windows"
             
-            # Look for SDL clipboard patches in order of preference
-            SDL_PATCH_FOUND=false
+            # Apply the standardized SDL clipboard patch
+            SDL_CLIPBOARD_PATCH="../patches/qemu-10.0.0-sdl-clipboard-mailing-list-clean.patch"
             
-            # Check for version-specific patches first (correct location: patches/ directory)
-            for patch_file in "../patches/qemu-${{ env.QEMU_VERSION }}-sdl-clipboard-fixed.patch" \
-                              "../patches/qemu-${{ env.QEMU_VERSION }}-sdl-clipboard-simple-safe.patch" \
-                              "../patches/qemu-10.0.0-sdl-clipboard-fixed.patch" \
-                              "../patches/qemu-10.0.0-sdl-clipboard-simple-safe.patch" \
-                              "../patches/SDL-Clipboard-${{ env.QEMU_VERSION }}.patch" \
-                              "../patches/SDL-Clipboard.patch"; do
-              if [[ -f "$patch_file" ]]; then
-                echo "🎯 Found SDL Clipboard patch: $patch_file"
-                
-                # Try to apply the patch
-                if patch -p1 -i "$patch_file"; then
-                  echo "✅ SDL Clipboard patch applied successfully: $patch_file"
-                  SDL_PATCH_FOUND=true
-                  break
-                else
-                  echo "⚠️ Failed to apply patch: $patch_file, trying next..."
-                fi
+            if [[ -f "$SDL_CLIPBOARD_PATCH" ]]; then
+              echo "🎯 Applying SDL Clipboard patch: $SDL_CLIPBOARD_PATCH"
+              
+              if patch -p1 -i "$SDL_CLIPBOARD_PATCH"; then
+                echo "✅ SDL Clipboard patch applied successfully: $(basename $SDL_CLIPBOARD_PATCH)"
               else
-                echo "📂 Patch not found: $patch_file"
+                echo "❌ Failed to apply SDL Clipboard patch: $SDL_CLIPBOARD_PATCH"
+                echo "Build will continue without experimental features"
+                exit 1
               fi
-            done
-            
-            if [[ "${SDL_PATCH_FOUND}" == "true" ]]; then
-              echo "🎉 SDL Clipboard patch successfully applied for Windows build!"
             else
-              echo "❌ No SDL Clipboard patch could be applied - build will continue without experimental features"
-              echo "Available patch files in patches/:"
-              ls -la ../patches/qemu-*sdl-clipboard* 2>/dev/null || echo "No SDL-Clipboard patches found in patches/"
-              echo "Available patch files in qemu-exp/ (legacy location):"
-              ls -la ../qemu-exp/SDL-Clipboard* 2>/dev/null || echo "No SDL-Clipboard patches found in qemu-exp/"
+              echo "❌ SDL Clipboard patch not found: $SDL_CLIPBOARD_PATCH"
+              echo "Build will continue without experimental features"
+              exit 1
             fi
           else
             echo "📦 Skipping experimental patches (apply_experimental = false or not set)"
