@@ -6,7 +6,6 @@ MANUAL_COMMIT=`echo $@ | sed -n "s/.*\-commit=\([a-f0-9]*\).*/\1/p"`
 
 if [ -z $GIT ]; then GIT=.; else shift; fi;
 ARG=$@; if [ -z $ARG ]; then ARG=HEAD; fi
-<<<<<<< HEAD
 
 # Use manual commit if specified, otherwise check environment variable, otherwise get from git
 if [ -n "$MANUAL_COMMIT" ]; then
@@ -16,7 +15,7 @@ elif [ -n "$COMMIT_ID_OVERRIDE" ]; then
     COMMIT_ID="$COMMIT_ID_OVERRIDE"
     echo "Using environment commit ID override: $COMMIT_ID_OVERRIDE"
 else
-    COMMIT_ID=`cd $GIT; git rev-parse $ARG | sed "s/\(.......\).*/\1/"`
+    COMMIT_ID=`cd $GIT; git rev-parse --short $ARG`
     echo "Using git commit ID: $COMMIT_ID"
 fi
 
@@ -28,20 +27,13 @@ export QEMU_3DFX_COMMIT_ID="$COMMIT_ID"
 
 echo "Embedding signature: $(echo $REV | sed 's/-$//')"
 
-=======
-REV=`cd $GIT; git rev-parse --short $ARG | sed "s/\(.*\)/\1\-/"`
->>>>>>> upstream/master
 EMUS=$(basename $(dirname `find $TOP/include -name whpx.h`))
 CRYP=$(grep HASH_ALG $TOP/qapi/crypto.json | sed "s/.*\:\ //;s/.*\(HASH_[A-Z]*\).*/\1/")
 MODS=$(cat $TOP/target/i386/meson.build | tail -n 2 | head -n 1 | \
     sed "s/.*:\ //;s/\}//")
-<<<<<<< HEAD
 if [ -z "$REV" ] || [ -z "$EMUS" ] || [ -z "$MODS" ]; then exit 1; fi
-=======
-if [ -z $REV ] || [ -z $EMUS ] || [ -z $MODS ]; then exit 1; fi
 [ ! -z $CRYP ]  && sed -i -e "s/HASH_ALGO/$CRYP/" \
     $TOP/hw/mesa/mesagl_pfn.h
->>>>>>> upstream/master
 sed -i -e "s/\"sys.*\//\"$EMUS\//" \
     $(grep -rl \"sys.*\/ $TOP/hw/{3dfx,mesa})
 sed -i -e "s/i386.*_ss/$MODS/" \
