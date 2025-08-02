@@ -817,5 +817,85 @@ void MGLFuncHandler(const char *name)
     DPRINTF("  *WARN* Unhandled GLFunc %s", name);
     argsp[0] = 0;
 }
+}
+
+// Missing function implementations that were removed during upstream merge
+static int CompareAttribArray(const int *attrib)
+{
+    if (!attrib) return 0;
+    
+    int major = LookupAttribArray(attrib, WGL_CONTEXT_MAJOR_VERSION_ARB);
+    int minor = LookupAttribArray(attrib, WGL_CONTEXT_MINOR_VERSION_ARB);
+    int profile = LookupAttribArray(attrib, WGL_CONTEXT_PROFILE_MASK_ARB);
+    int flags = LookupAttribArray(attrib, WGL_CONTEXT_FLAGS_ARB);
+    
+    return (major > 0 || minor > 0 || profile > 0 || flags > 0) ? 1 : 0;
+}
+
+// Missing function implementations that were removed during upstream merge
+int CompareAttribArray(const int *attrib)
+{
+    if (!attrib) return 0;
+    
+    int major = LookupAttribArray(attrib, WGL_CONTEXT_MAJOR_VERSION_ARB);
+    int minor = LookupAttribArray(attrib, WGL_CONTEXT_MINOR_VERSION_ARB);
+    int profile = LookupAttribArray(attrib, WGL_CONTEXT_PROFILE_MASK_ARB);
+    int flags = LookupAttribArray(attrib, WGL_CONTEXT_FLAGS_ARB);
+    
+    return (major > 0 || minor > 0 || profile > 0 || flags > 0) ? 1 : 0;
+}
+
+void MGLActivateHandler(const int activate, const int level)
+{
+    (void)activate;
+    (void)level;
+}
+
+void MGLCursorDefine(int width, int height, int hotx, int hoty, const void *cursor_data)
+{
+    (void)width;
+    (void)height;
+    (void)hotx;
+    (void)hoty;
+    (void)cursor_data;
+}
+
+void MGLMouseWarp(const uint32_t coords)
+{
+    if (window) {
+        // Extract x,y coordinates from packed uint32_t
+        int x = (int)(coords & 0xFFFF);
+        int y = (int)((coords >> 16) & 0xFFFF);
+        SDL_WarpMouseInWindow(window, x, y);
+    }
+}
+
+int find_xstr(const char *haystack, const char *needle)
+{
+    if (!haystack || !needle) return 0;
+    
+    const char *pos = haystack;
+    size_t needle_len = strlen(needle);
+    
+    while ((pos = strstr(pos, needle)) != NULL) {
+        int is_start = (pos == haystack || *(pos - 1) == ' ');
+        int is_end = (*(pos + needle_len) == '\0' || *(pos + needle_len) == ' ');
+        
+        if (is_start && is_end) {
+            return 1;
+        }
+        pos++;
+    }
+    
+    return 0;
+}
+
+void mesastat(PPERFSTAT pstat)
+{
+    // Mesa statistics/status function
+    // Call the performance stat functions if provided
+    if (pstat && pstat->stat) {
+        pstat->stat();
+    }
 
 #endif //MESAGL_SDLGL
