@@ -820,17 +820,6 @@ void MGLFuncHandler(const char *name)
 }
 
 // Missing function implementations that were removed during upstream merge
-static int CompareAttribArray(const int *attrib)
-{
-    if (!attrib) return 0;
-    
-    int major = LookupAttribArray(attrib, WGL_CONTEXT_MAJOR_VERSION_ARB);
-    int minor = LookupAttribArray(attrib, WGL_CONTEXT_MINOR_VERSION_ARB);
-    int profile = LookupAttribArray(attrib, WGL_CONTEXT_PROFILE_MASK_ARB);
-    int flags = LookupAttribArray(attrib, WGL_CONTEXT_FLAGS_ARB);
-    
-    return (major > 0 || minor > 0 || profile > 0 || flags > 0) ? 1 : 0;
-}
 
 // Missing function implementations that were removed during upstream merge
 int CompareAttribArray(const int *attrib)
