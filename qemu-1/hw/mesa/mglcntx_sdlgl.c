@@ -817,7 +817,6 @@ void MGLFuncHandler(const char *name)
     DPRINTF("  *WARN* Unhandled GLFunc %s", name);
     argsp[0] = 0;
 }
-}
 
 // Missing function implementations that were removed during upstream merge
 
@@ -886,5 +885,5 @@ void mesastat(PPERFSTAT pstat)
     if (pstat && pstat->stat) {
         pstat->stat();
     }
-
+}
 #endif //MESAGL_SDLGL
