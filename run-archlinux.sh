@@ -231,28 +231,25 @@ fi
 AUDIO="-audiodev coreaudio,id=audio0 -device intel-hda -device hda-duplex,audiodev=audio0"
 USB="-device qemu-xhci -device usb-kbd -device virtio-mouse-pci"  # Add VirtIO mouse for better integration
 SERIAL=""  # virtio-serial-pci will be added with clipboard configuration to avoid duplication
-MONITOR="-monitor telnet:127.0.0.1:4445,server,nowait"  # Monitor via telnet to avoid conflicts
+MONITOR="-monitor telnet:127.0.0.1:4444,server,nowait"  # Monitor via telnet to avoid conflicts
 NETWORK="-netdev user,id=net0 -device virtio-net-pci,netdev=net0"
 
 # Alternative audio configurations for better compatibility
-if [ "$DISABLE_AUDIO" = "1" ]; then
-    # Disable audio completely for troubleshooting
-    AUDIO=""
-    echo "Audio: DISABLED (set DISABLE_AUDIO=1 for troubleshooting)"
-else
-    # Use AC97 with CoreAudio - most universally supported combination
-    AUDIO="-audiodev coreaudio,id=audio0 -device AC97,audiodev=audio0"
-    echo "Audio: AC97 with CoreAudio backend (universal compatibility)"
-    echo "Guest setup: Install alsa-utils, unmute with 'amixer sset Master unmute'"
-fi
-
 if [ "$ARCH" = "i386" ]; then
+    # For retro systems, use AC97 which is more period-appropriate
+    AUDIO="-audiodev coreaudio,id=audio0 -device AC97,audiodev=audio0"
     USB="-device qemu-xhci -device usb-kbd"  # Only keyboard for i386
+    echo "Audio: AC97 (retro-compatible) with CoreAudio backend"
 elif [ "$ARCH" = "aarch64" ]; then
+    # For ARM64, use Intel HDA with output only (avoid duplex issues)
+    AUDIO="-audiodev coreaudio,id=audio0 -device intel-hda -device hda-output,audiodev=audio0"
     USB="-device qemu-xhci -device usb-kbd"  # Only keyboard for ARM64
+    echo "Audio: Intel HDA output with CoreAudio backend"
 else
-    # For x86_64
+    # For x86_64, use Intel HDA with output only
+    AUDIO="-audiodev coreaudio,id=audio0 -device intel-hda -device hda-output,audiodev=audio0"
     USB="-device qemu-xhci -device usb-kbd"  # Only keyboard for x86_64
+    echo "Audio: Intel HDA output with CoreAudio backend"
 fi
 
 # SDL Environment variables for QEMU 3dfx compatibility
@@ -401,7 +398,7 @@ else
     echo "Note: Using QEMU 3dfx compatible display configuration"
 fi
 echo "VGA Device: VirtIO-GPU with hardware acceleration via guest drivers"
-echo "Monitor: Available via telnet localhost:4445"
+echo "Monitor: Available via telnet localhost:4444"
 echo "Display Options:"
 echo "  Default (3D accel):   ./run-archlinux.sh $ARCH"
 echo "  Browser mode:         USE_BROWSER_MODE=1 ./run-archlinux.sh $ARCH"
