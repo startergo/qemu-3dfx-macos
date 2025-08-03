@@ -384,6 +384,7 @@ void MGLWndRelease(void)
         }
         MesaInitGammaRamp();
         mesa_release_window();
+        self_ctx = 0;
         ctx[0] = 0;
         window = 0;
     }
@@ -506,7 +507,6 @@ int MGLDescribePixelFormat(int fmt, unsigned int sz, void *p)
     if (!window)
         MGLPresetPixelFormat();
     else {
-        self_ctx = 0;
         if (!ctx[0]) {
             ctx[0] = SDL_GL_GetCurrentContext();
             if (!ctx[0]) {
