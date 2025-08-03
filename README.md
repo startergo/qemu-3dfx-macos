@@ -16,10 +16,47 @@ Witness, experience and share your thoughts on modern CPU/GPU prowess for retro 
 - YouTube channel (https://www.youtube.com/@qemu-3dfx/videos)
 - VOGONS forums (https://www.vogons.org)
 - Wiki (https://github.com/startergo/qemu-3dfx-macos/wiki)
-## Building QEMU
-Following instructions are based on `MSYS2/mingw-w64` BASH shell environment on modern Windows. It is meant to be simple and minor variations are inevitable due to different flavors of Linux distributions.
+## Building QEMU for macOS
+This repository provides a Homebrew formula for easy installation on macOS systems (both Intel and Apple Silicon).
 
-Simple guide to apply the patch:<br>
+### Quick Installation (Recommended)
+
+For macOS users, use the comprehensive setup script that handles all dependencies and configuration:
+
+    $ git clone https://github.com/startergo/qemu-3dfx-macos.git
+    $ cd qemu-3dfx-macos
+    $ ./homebrew-qemu3dfx/test-formula.sh
+
+The script will automatically:
+- Install Xcode Command Line Tools and Homebrew
+- Install XQuartz and set up X11 libraries  
+- Install all required dependencies
+- Set up X11 headers for Mesa GL support
+- Configure experimental patches (replicating CI workflow)
+- Build QEMU 10.0.0 with 3dfx and Virgl3D support
+- Run verification tests and show usage examples
+
+### Alternative Installation Methods
+
+**Direct Homebrew Formula** (only if prerequisites already installed):
+
+    $ brew install ./homebrew-qemu3dfx/Formula/qemu-3dfx.rb
+
+**Manual Setup** (for advanced users - see README-BUILD.md for complete instructions):
+
+    $ xcode-select --install
+    $ brew install --cask xquartz
+    $ brew install cmake meson ninja pkg-config python@3.12
+    $ brew install libx11 libxext libxfixes libxrandr libxinerama libxi libxcursor xorgproto
+    $ brew install glib pixman libepoxy sdl2 gettext libffi
+    $ git clone https://github.com/startergo/qemu-3dfx-macos.git
+    $ cd qemu-3dfx-macos
+    $ brew install ./homebrew-qemu3dfx/Formula/qemu-3dfx.rb
+
+### Manual Building (Linux/Windows)
+For other platforms, follow the traditional build process:
+
+Simple guide to apply the patch (Linux/Windows manual build):<br>
 (using `00-qemu92x-mesa-glide.patch`)
 
     $ mkdir ~/myqemu && cd ~/myqemu
@@ -33,6 +70,36 @@ Simple guide to apply the patch:<br>
     $ bash ../scripts/sign_commit
     $ mkdir ../build && cd ../build
     $ ../qemu-9.2.2/configure && make
+
+### macOS Installation Output
+After successful Homebrew installation, QEMU 3dfx will be available at:
+
+    /opt/homebrew/bin/qemu-system-i386       # 32-bit x86 emulator
+    /opt/homebrew/bin/qemu-system-x86_64     # 64-bit x86 emulator  
+    /opt/homebrew/bin/qemu-system-aarch64    # ARM64 emulator
+
+### macOS Usage Examples
+
+**3dfx Voodoo Gaming** (DOS/Windows 9x):
+
+    $ qemu-system-i386 \
+      -machine pc-i440fx-2.1 \
+      -cpu pentium2 \
+      -m 128 \
+      -device 3dfx,voodoo=voodoo2 \
+      -hda dos.img \
+      -display sdl
+
+**Modern Linux with Virgl3D**:
+
+    $ qemu-system-x86_64 \
+      -accel hvf \
+      -m 2048 \
+      -device virtio-vga-gl \
+      -display sdl,gl=on \
+      -hda linux.img
+
+> **Note**: On macOS, use `-accel hvf` (Hypervisor Framework) for acceleration.
 
 ## Building Guest Wrappers
 **Requirements:**
