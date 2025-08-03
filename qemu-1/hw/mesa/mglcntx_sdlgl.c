@@ -306,7 +306,7 @@ static SDL_GLContext ctx[MAX_LVLCNTX];
 GL_RENDER_TEXTURE_VAR;
 
 static HPBUFFERARB hPbuffer[MAX_PBUFFER];
-static int wnd_ready, self_ctx;
+static int wnd_ready;
 static int cAlphaBits, cDepthBits, cStencilBits;
 static int cAuxBuffers, cSampleBuf[2];
 
@@ -361,30 +361,24 @@ void MGLDeleteContext(int level)
 {
     int n = (level)? ((level % MAX_LVLCNTX)? (level % MAX_LVLCNTX):1):level;
     SDL_GL_MakeCurrent(window, NULL);
-    if (n) {
-        GL_DELETECONTEXT(ctx[n]);
-    }
-    else {
+    if (n == 0) {
         for (int i = MAX_LVLCNTX; i > 1;) {
             if (ctx[--i]) {
                 GL_DELETECONTEXT(ctx[i]);
             }
         }
         MesaBlitFree();
-        MGLActivateHandler(0, 0);
     }
+    GL_DELETECONTEXT(ctx[n]);
+    if (!n)
+        MGLActivateHandler(0, 0);
 }
 
 void MGLWndRelease(void)
 {
     if (window) {
-        if (self_ctx && ctx[0]) {
-            SDL_GL_MakeCurrent(window, NULL);
-            SDL_GL_DeleteContext(ctx[0]);
-        }
         MesaInitGammaRamp();
         mesa_release_window();
-        self_ctx = 0;
         ctx[0] = 0;
         window = 0;
     }
@@ -399,13 +393,12 @@ int MGLCreateContext(uint32_t gDC)
     }
     else {
         SDL_GL_MakeCurrent(window, NULL);
-        for (i = MAX_LVLCNTX; i > 1;) {
+        for (i = MAX_LVLCNTX; i > 0;) {
             if (ctx[--i]) {
                 GL_DELETECONTEXT(ctx[i]);
             }
         }
-        if (!ctx[0])
-            GL_CREATECONTEXT(ctx[0]);
+        GL_CREATECONTEXT(ctx[0]);
         ret = (ctx[0])? 0:1;
     }
     return ret;
@@ -464,22 +457,11 @@ int MGLSetPixelFormat(int fmt, const void *p)
     if (!window)
         MGLPresetPixelFormat();
     else {
-        self_ctx = 0;
-        if (!ctx[0]) {
-            ctx[0] = SDL_GL_GetCurrentContext();
-            if (!ctx[0]) {
-                ctx[0] = SDL_GL_CreateContext(window);
-                self_ctx = (ctx[0])? 1:0;
-            }
-        }
-        if (!ctx[0])
-            fprintf(stderr, "%s:%d %s\n", __FILE__, __LINE__, SDL_GetError());
-        else {
+        ctx[0] = (ctx[0])? ctx[0]:SDL_GL_GetCurrentContext();
+        ctx[0] = (ctx[0])? ctx[0]:SDL_GL_CreateContext(window);
+        if (ctx[0]) {
             int cColors[3];
-            if (SDL_GL_MakeCurrent(window, ctx[0])) {
-                fprintf(stderr, "%s:%d %s\n", __FILE__, __LINE__, SDL_GetError());
-                return 0;
-            }
+            SDL_GL_MakeCurrent(window, ctx[0]);
             SDL_GL_GetAttribute(SDL_GL_ALPHA_SIZE, &cAlphaBits);
             SDL_GL_GetAttribute(SDL_GL_BLUE_SIZE, &cColors[0]);
             SDL_GL_GetAttribute(SDL_GL_GREEN_SIZE, &cColors[1]);
@@ -507,20 +489,10 @@ int MGLDescribePixelFormat(int fmt, unsigned int sz, void *p)
     if (!window)
         MGLPresetPixelFormat();
     else {
-        if (!ctx[0]) {
-            ctx[0] = SDL_GL_GetCurrentContext();
-            if (!ctx[0]) {
-                ctx[0] = SDL_GL_CreateContext(window);
-                self_ctx = (ctx[0])? 1:0;
-            }
-        }
-        if (!ctx[0])
-            fprintf(stderr, "%s:%d %s\n", __FILE__, __LINE__, SDL_GetError());
-        else {
-            if (SDL_GL_MakeCurrent(window, ctx[0])) {
-                fprintf(stderr, "%s:%d %s\n", __FILE__, __LINE__, SDL_GetError());
-                return 0;
-            }
+        ctx[0] = (ctx[0])? ctx[0]:SDL_GL_GetCurrentContext();
+        ctx[0] = (ctx[0])? ctx[0]:SDL_GL_CreateContext(window);
+        if (ctx[0]) {
+            SDL_GL_MakeCurrent(window, ctx[0]);
             SDL_GL_GetAttribute(SDL_GL_DEPTH_SIZE, &cDepthBits);
             SDL_GL_GetAttribute(SDL_GL_STENCIL_SIZE, &cStencilBits);
             glGetIntegerv(GL_AUX_BUFFERS, &cAuxBuffers);
@@ -684,11 +656,9 @@ void MGLFuncHandler(const char *name)
             argsp[1] = (argsp[0])? i:0;
             if (argsp[1] == 0) {
                 SDL_GL_MakeCurrent(window, NULL);
-                if (CompareAttribArray((const int *)&argsp[2])) {
-                    GL_DELETECONTEXT(ctx[0]);
-                    GL_CONTEXTATTRIB(ctx[0]);
-                    GL_CREATECONTEXT(ctx[0]);
-                }
+                GL_DELETECONTEXT(ctx[0]);
+                GL_CONTEXTATTRIB(ctx[0]);
+                GL_CREATECONTEXT(ctx[0]);
                 ret = (ctx[0])? 1:0;
             }
             else {
@@ -818,72 +788,4 @@ void MGLFuncHandler(const char *name)
     argsp[0] = 0;
 }
 
-// Missing function implementations that were removed during upstream merge
-
-// Missing function implementations that were removed during upstream merge
-int CompareAttribArray(const int *attrib)
-{
-    if (!attrib) return 0;
-    
-    int major = LookupAttribArray(attrib, WGL_CONTEXT_MAJOR_VERSION_ARB);
-    int minor = LookupAttribArray(attrib, WGL_CONTEXT_MINOR_VERSION_ARB);
-    int profile = LookupAttribArray(attrib, WGL_CONTEXT_PROFILE_MASK_ARB);
-    int flags = LookupAttribArray(attrib, WGL_CONTEXT_FLAGS_ARB);
-    
-    return (major > 0 || minor > 0 || profile > 0 || flags > 0) ? 1 : 0;
-}
-
-void MGLActivateHandler(const int activate, const int level)
-{
-    (void)activate;
-    (void)level;
-}
-
-void MGLCursorDefine(int width, int height, int hotx, int hoty, const void *cursor_data)
-{
-    (void)width;
-    (void)height;
-    (void)hotx;
-    (void)hoty;
-    (void)cursor_data;
-}
-
-void MGLMouseWarp(const uint32_t coords)
-{
-    if (window) {
-        // Extract x,y coordinates from packed uint32_t
-        int x = (int)(coords & 0xFFFF);
-        int y = (int)((coords >> 16) & 0xFFFF);
-        SDL_WarpMouseInWindow(window, x, y);
-    }
-}
-
-int find_xstr(const char *haystack, const char *needle)
-{
-    if (!haystack || !needle) return 0;
-    
-    const char *pos = haystack;
-    size_t needle_len = strlen(needle);
-    
-    while ((pos = strstr(pos, needle)) != NULL) {
-        int is_start = (pos == haystack || *(pos - 1) == ' ');
-        int is_end = (*(pos + needle_len) == '\0' || *(pos + needle_len) == ' ');
-        
-        if (is_start && is_end) {
-            return 1;
-        }
-        pos++;
-    }
-    
-    return 0;
-}
-
-void mesastat(PPERFSTAT pstat)
-{
-    // Mesa statistics/status function
-    // Call the performance stat functions if provided
-    if (pstat && pstat->stat) {
-        pstat->stat();
-    }
-}
 #endif //MESAGL_SDLGL
