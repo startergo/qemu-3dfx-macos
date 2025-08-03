@@ -131,6 +131,7 @@ jobs:
             ${{ matrix.pkg_prefix }}-xz
             ${{ matrix.pkg_prefix }}-zlib
             ${{ matrix.pkg_prefix }}-zstd
+            ${{ matrix.pkg_prefix }}-rust
 
       - name: Download and extract QEMU source
         shell: msys2 {0}
@@ -245,7 +246,8 @@ jobs:
           ../qemu-${{ env.QEMU_VERSION }}/configure \
             --target-list="x86_64-softmmu,i386-softmmu" \
             --prefix=$(pwd)/../install_dir \
-            --extra-cflags="-O2"
+            --extra-cflags="-O2" \
+            --disable-rust
           echo "Configuration completed"
 
       - name: Build QEMU
@@ -253,7 +255,6 @@ jobs:
         shell: msys2 {0}
         run: |
           echo "Building QEMU with limited parallel jobs for CI stability"
-          # Use limited parallelism in CI to prevent resource exhaustion
           make -j2
           echo "QEMU build completed"
 
