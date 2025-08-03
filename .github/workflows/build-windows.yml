@@ -448,8 +448,20 @@ jobs:
       run: |
         New-Item -ItemType Directory -Force -Path release-assets
         
-        # Collect all Windows artifacts
-        Get-ChildItem -Path all-artifacts -Recurse -Include "*.zip","*.tar.*","*.iso" | Copy-Item -Destination release-assets/
+        # Collect all Windows artifacts - both individual files and directories
+        Write-Host "=== Scanning for artifacts ==="
+        Get-ChildItem -Path all-artifacts -Recurse | Format-Table Name, PSIsContainer, Length
+        
+        # Copy ISO files directly
+        Get-ChildItem -Path all-artifacts -Recurse -Include "*.iso" | Copy-Item -Destination release-assets/
+        
+        # Package directory artifacts as ZIP files
+        Get-ChildItem -Path all-artifacts -Directory | ForEach-Object {
+          $dirName = $_.Name
+          $zipName = "$dirName.zip"
+          Write-Host "Packaging $dirName as $zipName"
+          Compress-Archive -Path "$($_.FullName)\*" -DestinationPath "release-assets\$zipName" -Force
+        }
         
         Write-Host "=== Windows release assets prepared ==="
         Get-ChildItem release-assets/ | Format-Table Name, Length
