@@ -198,7 +198,7 @@ jobs:
             echo "🧪 Applying experimental SDL Clipboard patch for Windows"
             
             # Apply the standardized SDL clipboard patch
-            SDL_CLIPBOARD_PATCH="../patches/qemu-10.0.0-sdl-clipboard-mailing-list-clean.patch"
+            SDL_CLIPBOARD_PATCH="../patches/qemu-10.0.0-sdl-clipboard-post-3dfx-corrected-final.patch"
             
             if [[ -f "$SDL_CLIPBOARD_PATCH" ]]; then
               echo "🎯 Applying SDL Clipboard patch: $SDL_CLIPBOARD_PATCH"
