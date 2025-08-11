@@ -100,35 +100,74 @@ brew install xorgproto libxxf86vm  # X11 extension headers including xf86vmode.h
 echo "Dependencies installed successfully"
 echo
 
-echo "=== Step 2.5: Setup X11 headers for Mesa GL support ==="
-# Create X11 directory structure for Mesa headers
-sudo mkdir -p /usr/local/include/X11/extensions
+echo "=== Step 2.5: Setup Build Environment (Replicating GitHub Actions) ==="
 
-# Setup X11 extension headers from Homebrew (needed for Mesa GL compilation)
-if [ -d "/opt/homebrew/include/X11" ]; then
-  echo "Setting up X11 headers from Homebrew"
-  sudo cp -rf /opt/homebrew/include/X11/* /usr/local/include/X11/ 2>/dev/null || true
+# Set PKG_CONFIG_PATH to match what the formula expects
+export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig"
+
+# Add libepoxy path specifically (essential for OpenGL, matching formula)
+EPOXY_PATH=$(find /opt/homebrew/Cellar/libepoxy -name "pkgconfig" -type d 2>/dev/null | head -1)
+if [ -n "$EPOXY_PATH" ]; then
+  export PKG_CONFIG_PATH="$EPOXY_PATH:$PKG_CONFIG_PATH"
+  echo "Added libepoxy pkg-config path: $EPOXY_PATH"
 fi
 
-# Ensure xf86vmode.h is available (needed for Mesa GL context support)
-if [ ! -f "/usr/local/include/X11/extensions/xf86vmode.h" ] && [ -f "/opt/homebrew/include/X11/extensions/xf86vmode.h" ]; then
-  echo "Copying xf86vmode.h from Homebrew libxxf86vm"
-  sudo cp /opt/homebrew/include/X11/extensions/xf86vmode.h /usr/local/include/X11/extensions/
-fi
+# The formula creates its own local header structure, so we don't need to manually copy to /usr/local
+# However, we need to ensure all dependencies are properly installed and available via pkg-config
 
-# Verify the headers are available
-echo "Checking X11 extension headers:"
-ls -la /usr/local/include/X11/extensions/ || true
-echo "Checking specifically for xf86vmode.h:"
-test -f /usr/local/include/X11/extensions/xf86vmode.h && echo "✓ xf86vmode.h found" || echo "✗ xf86vmode.h missing"
-echo "Checking XQuartz X11 library installation:"
-ls -la /opt/X11/lib/ || echo "XQuartz X11 lib directory not found"
-echo "Verifying X11 library files:"
-ls -la /opt/X11/lib/*X11* 2>/dev/null || echo "No X11 libraries found in /opt/X11/lib/"
-echo "Headers setup complete"
+echo "Current PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
+
+# Verify pixman is available via pkg-config (this is what matters for the build)
+echo "Checking pixman via pkg-config:"
+pkg-config --exists pixman-1 && echo "✅ pixman-1 pkg-config found" || echo "❌ pixman-1 pkg-config missing"
+pkg-config --cflags pixman-1 2>/dev/null || echo "Could not get pixman-1 cflags"
+pkg-config --libs pixman-1 2>/dev/null || echo "Could not get pixman-1 libs"
+
+# Verify pixman headers are available where Homebrew installed them
+echo "Checking Homebrew pixman installation:"
+ls -la /opt/homebrew/include/pixman-1/ 2>/dev/null || echo "Homebrew pixman headers not found"
+test -f /opt/homebrew/include/pixman-1/pixman.h && echo "✅ pixman.h found in Homebrew" || echo "❌ pixman.h missing in Homebrew"
+
+# Check other critical dependencies that the formula expects
+echo "Verifying critical build dependencies:"
+for dep in glib-2.0 libepoxy sdl2 zlib; do
+  if pkg-config --exists $dep; then
+    echo "✅ $dep available"
+  else
+    echo "❌ $dep missing"
+  fi
+done
+
+echo "Build environment setup complete"
 echo
 
 echo "=== Step 3: Building Formula (Verbose Mode) ==="
+
+# Set up the same environment that GitHub Actions would have
+echo "🔧 Setting up build environment to match GitHub Actions..."
+
+# Ensure we're in the right directory
+cd "$FORMULA_DIR"
+
+# Set environment variables that GitHub Actions sets automatically
+export CI=false  # Don't limit build parallelism 
+export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_INSTALL_CLEANUP=1
+export HOMEBREW_NO_ANALYTICS=1
+
+# Set paths that match the formula expectations
+export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig"
+
+# Add libepoxy path (critical for OpenGL, matching what formula does)
+EPOXY_PATH=$(find /opt/homebrew/Cellar/libepoxy -name "pkgconfig" -type d 2>/dev/null | head -1)
+if [ -n "$EPOXY_PATH" ]; then
+  export PKG_CONFIG_PATH="$EPOXY_PATH:$PKG_CONFIG_PATH"
+fi
+
+echo "Environment configured:"
+echo "  PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
+echo "  HOMEBREW_PREFIX: $(brew --prefix)"
+
 # Replicate workflow's experimental patches setup
 echo "🧪 Setting up experimental patches flag (replicating workflow behavior)..."
 
@@ -145,10 +184,52 @@ brew list spice-server || echo "⚠️ spice-server not installed"
 pkg-config --exists spice-protocol && echo "✅ spice-protocol pkg-config found" || echo "⚠️ spice-protocol pkg-config missing"
 pkg-config --exists spice-server && echo "✅ spice-server pkg-config found" || echo "⚠️ spice-server pkg-config missing"
 
-# Use verbose mode to see detailed output
-cd "$FORMULA_DIR"
+# Use verbose mode to see detailed output and force clean build
 echo "Running brew install with experimental patches enabled..."
-brew install --verbose --build-from-source Formula/qemu-3dfx.rb
+echo "📝 Using --force to ensure clean build..."
+
+# IMPORTANT: Reset Homebrew completely to avoid any cached state issues
+echo "🧹 Resetting Homebrew to ensure clean environment..."
+echo "Clearing all Homebrew caches..."
+brew cleanup --prune=all
+rm -rf "$(brew --cache)"
+echo "Clearing formula-specific build cache..."
+rm -rf "$(brew --cache)/downloads/qemu*"
+rm -rf "$(brew --cache)/Formula/qemu*"
+
+# First, try to uninstall any existing installation to ensure clean state
+brew uninstall qemu-3dfx 2>/dev/null || echo "No existing installation to remove"
+
+# Clear any cached builds
+brew cleanup qemu-3dfx 2>/dev/null || true
+
+# Force Homebrew to re-evaluate all dependencies
+echo "🔄 Forcing Homebrew to re-evaluate dependencies..."
+brew deps --tree Formula/qemu-3dfx.rb
+
+# Fix pixman linking issues if they exist (common cache problem)
+echo "🔧 Resolving potential pixman linking conflicts..."
+if [ -f "/opt/homebrew/include/pixman-1/pixman.h" ] && ! brew list pixman &>/dev/null; then
+    echo "Found orphaned pixman headers, removing them..."
+    rm -rf /opt/homebrew/include/pixman-1/ 2>/dev/null || true
+fi
+
+# Force proper pixman linking if it's installed but not linked
+if brew list pixman &>/dev/null; then
+    echo "Ensuring pixman is properly linked..."
+    brew unlink pixman 2>/dev/null || true
+    brew link --overwrite pixman || echo "Could not link pixman (continuing anyway)"
+fi
+
+# Verify critical headers are available before starting build
+echo "🔍 Final verification of build environment:"
+echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
+pkg-config --exists pixman-1 && echo "✅ pixman-1 available" || echo "❌ pixman-1 missing"
+test -f /opt/homebrew/include/pixman-1/pixman.h && echo "✅ pixman.h header found" || echo "❌ pixman.h header missing"
+
+# Install with verbose output and force clean build from source
+# Note: We use --build-from-source (not --force-bottle) since we need to apply patches
+brew install --verbose --build-from-source --force Formula/qemu-3dfx.rb
 
 echo
 echo "=== Step 4: Running Formula Tests ==="

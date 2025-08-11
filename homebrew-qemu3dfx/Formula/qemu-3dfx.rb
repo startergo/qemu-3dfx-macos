@@ -31,7 +31,8 @@ class Qemu3dfx < Formula
   depends_on "opus"           # Required for audio
   depends_on "sdl2"           # Required for --enable-sdl
   depends_on "zstd"           # Required for compression
-  
+  depends_on "swtpm"          # Required for TPM support
+
   # Additional dependencies for full functionality
   depends_on "libffi"         # Used by GLib
   depends_on "ncurses"        # Required for --enable-curses
@@ -132,8 +133,6 @@ class Qemu3dfx < Formula
                "-Dplatforms=",
                "-Dminigbm_allocation=false",
                "-Dvenus=false"
-        system "ninja"
-        system "ninja", "install"
       end
     end
 
@@ -209,13 +208,11 @@ class Qemu3dfx < Formula
              "--disable-gtk",
              "--disable-dbus-display",
              "--enable-curses",
-             "--enable-vnc",
              "--enable-spice",
-             "--enable-hvf",
              "--disable-tcg-interpreter",
-             "--disable-guest-agent",
+             "--enable-tpm",
              "--disable-docs"
-             # Note: SDL clipboard functionality is enabled by the patch, not by configure flag
+             # Note: SDL clipboard functionality is enabled in the manual integration step
 
       ohai "Building and installing QEMU 3dfx (upstream: make install)..."
       
@@ -234,9 +231,6 @@ class Qemu3dfx < Formula
 
     # Copy 3dfx wrapper sources for manual building
     copy_3dfx_wrapper_sources
-
-    # Build host-side 3dfx libraries for QEMU
-    build_host_3dfx_libraries
 
     # Create version info
     (prefix/"VERSION").write("#{version}-#{revision}")
@@ -346,7 +340,7 @@ class Qemu3dfx < Formula
       ohai "QEMU 10.0.0 3dfx patch file not found at: #{patch_file}"
     end
 
-    # Additional patches for macOS compatibility (applied BEFORE sign_commit)
+    # Additional patches for macOS compatibility (applied AFTER 3dfx patch to avoid conflicts)
     # Apply SDL clipboard patch for QEMU 10.0.0 (conditional on experimental flag)
     # Check both environment variable and flag file for maximum reliability
     experimental_patches_env = ENV["APPLY_EXPERIMENTAL_PATCHES"]
@@ -359,10 +353,10 @@ class Qemu3dfx < Formula
     use_experimental = (flag_file_value == "true") || (flag_file_value.nil? && experimental_patches_env == "true")
     
     if use_experimental
-      ohai "✅ Experimental patches enabled - applying SDL clipboard patch"
+      ohai "✅ Experimental patches enabled - applying SDL clipboard patch AFTER 3dfx patch"
       
       # Apply the cleaned SDL clipboard patch for QEMU 10.0.0
-      sdl_clipboard_patch = "#{repo_root}/patches/qemu-10.0.0-sdl-clipboard-mailing-list-clean.patch"
+      sdl_clipboard_patch = "#{repo_root}/patches/qemu-10.0.0-sdl-clipboard-post-3dfx-corrected-final.patch"
       if File.exist?(sdl_clipboard_patch)
         ohai "Applying cleaned SDL clipboard patch: #{File.basename(sdl_clipboard_patch)}"
         apply_patch_with_path_fixing(sdl_clipboard_patch)
@@ -472,88 +466,14 @@ class Qemu3dfx < Formula
     ohai "Requires: mingw32, Open-Watcom, i586-pc-msdosdjgpp toolchains"
   end
 
-  def build_host_3dfx_libraries
-    # Build host-side 3dfx libraries that QEMU links against
-    ohai "Building host-side 3dfx libraries for QEMU..."
-    
-    # These libraries provide the host-side interface for 3dfx emulation
-    # They communicate with the guest 3dfx drivers through QEMU's hardware emulation
-    
-    wrappers_dir = "#{__dir__}/../../wrappers"
-    return unless Dir.exist?(wrappers_dir)
-    
-    # Create basic host libraries for 3dfx support
-    # In a full implementation, these would be built from the appropriate sources
-    glide2x_lib = "#{lib}/libglide2x.0.dylib"
-    glide3x_lib = "#{lib}/libglide3x.0.dylib"
-    
-    ohai "Creating host 3dfx library stubs..."
-    
-    # Create minimal library stubs
-    # These provide the symbols that QEMU's 3dfx emulation expects
-    create_glide_library_stub(glide2x_lib, "2")
-    create_glide_library_stub(glide3x_lib, "3")
-    
-    # Create symlinks
-    Dir.chdir(lib) do
-      ln_sf "libglide2x.0.dylib", "libglide2x.dylib"
-      ln_sf "libglide3x.0.dylib", "libglide3x.dylib"
-      ohai "Created symlinks: libglide2x.dylib -> libglide2x.0.dylib"
-      ohai "Created symlinks: libglide3x.dylib -> libglide3x.0.dylib"
-    end
-
-    # Create compatibility symlinks in /usr/local/lib (like original)
-    create_compatibility_symlinks
-  end
-
-  def create_glide_library_stub(lib_path, version)
-    # Create a minimal dynamic library stub for Glide
-    # This provides the basic structure that QEMU's 3dfx emulation expects
-    
-    ohai "Creating Glide #{version} library stub at #{lib_path}"
-    
-    # Create a minimal C source for the stub
-    stub_source = buildpath/"glide#{version}_stub.c"
-    File.write(stub_source, <<~C_CODE)
-      // Minimal Glide #{version} library stub for QEMU 3dfx emulation
-      // This provides the host-side interface for 3dfx hardware emulation
-      
-      void grGlideInit(void) {
-          // Stub implementation
-      }
-      
-      void grGlideShutdown(void) {
-          // Stub implementation  
-      }
-      
-      // Additional Glide API stubs would go here
-      // The actual implementation interfaces with QEMU's 3dfx hardware emulation
-    C_CODE
-    
-    # Compile to dynamic library
-    system ENV.cc, "-shared", "-fPIC", "-o", lib_path, stub_source
-    
-    if File.exist?(lib_path)
-      ohai "Successfully created #{lib_path}"
-    else
-      ohai "Warning: Failed to create #{lib_path}"
-    end
-    
-    # Clean up source file
-    rm_f stub_source
-  end
-
   def create_compatibility_symlinks
-    # Create the complete qemu-3dfx directory structure in our prefix
-    # This matches the original distribution layout
+    # Create a basic qemu-3dfx directory structure for compatibility
     qemu_3dfx_root = "#{prefix}/qemu-3dfx"
     
     # Create the directory structure matching original distribution
     mkdir_p "#{qemu_3dfx_root}/opt/homebrew/bin"
-    mkdir_p "#{qemu_3dfx_root}/opt/homebrew/lib"
     mkdir_p "#{qemu_3dfx_root}/opt/homebrew/share/qemu"
     mkdir_p "#{qemu_3dfx_root}/opt/homebrew/sign"
-    mkdir_p "#{qemu_3dfx_root}/usr/local/lib"
     
     ohai "Creating qemu-3dfx distribution structure in #{qemu_3dfx_root}"
     
@@ -561,12 +481,6 @@ class Qemu3dfx < Formula
     Dir["#{bin}/qemu-*"].each do |qemu_bin|
       bin_name = File.basename(qemu_bin)
       ln_sf qemu_bin, "#{qemu_3dfx_root}/opt/homebrew/bin/#{bin_name}"
-    end
-    
-    # Link all libraries to the structure
-    Dir["#{lib}/*.dylib*"].each do |dylib|
-      lib_name = File.basename(dylib)
-      ln_sf dylib, "#{qemu_3dfx_root}/opt/homebrew/lib/#{lib_name}"
     end
     
     # Link QEMU data files to the structure
@@ -592,106 +506,6 @@ class Qemu3dfx < Formula
         ln_sf sign_file, "#{qemu_3dfx_root}/opt/homebrew/sign/#{file_name}"
       end
     end
-    
-    # Create the key compatibility symlinks in usr/local/lib within our structure
-    Dir.chdir("#{qemu_3dfx_root}/usr/local/lib") do
-      %w[libglide2x libglide3x].each do |libname|
-        target_lib = "#{qemu_3dfx_root}/opt/homebrew/lib/#{libname}.dylib"
-        symlink_name = "#{libname}.dylib"
-        
-        if File.exist?(target_lib)
-          rm_f symlink_name  # Remove existing symlink if present
-          ln_sf target_lib, symlink_name
-          ohai "Created internal symlink: #{symlink_name} -> #{target_lib}"
-        end
-      end
-      
-      # Also create SDL2 symlink if present (as shown in original structure)
-      sdl2_target = "#{HOMEBREW_PREFIX}/lib/libSDL2.dylib"
-      if File.exist?(sdl2_target)
-        rm_f "libSDL2.dylib"
-        ln_sf sdl2_target, "libSDL2.dylib"
-        ohai "Created SDL2 internal symlink: libSDL2.dylib -> #{sdl2_target}"
-      end
-    end
-    
-    # Now try to create symlinks from system /usr/local/lib to our structure
-    usr_local_lib = "/usr/local/lib"
-    
-    begin
-      if File.writable?("/usr/local") || File.exist?(usr_local_lib)
-        ohai "Creating system compatibility symlinks in #{usr_local_lib}"
-        
-        mkdir_p usr_local_lib
-        Dir.chdir(usr_local_lib) do
-          %w[libglide2x libglide3x].each do |libname|
-            target_lib = "#{qemu_3dfx_root}/usr/local/lib/#{libname}.dylib"
-            symlink_name = "#{libname}.dylib"
-            
-            if File.exist?(target_lib)
-              rm_f symlink_name  # Remove existing symlink if present
-              ln_sf target_lib, symlink_name
-              ohai "Created system symlink: #{usr_local_lib}/#{symlink_name} -> #{target_lib}"
-            end
-          end
-          
-          # Also create SDL2 system symlink
-          sdl2_target = "#{qemu_3dfx_root}/usr/local/lib/libSDL2.dylib"
-          if File.exist?(sdl2_target)
-            rm_f "libSDL2.dylib"
-            ln_sf sdl2_target, "libSDL2.dylib"
-            ohai "Created SDL2 system symlink: #{usr_local_lib}/libSDL2.dylib -> #{sdl2_target}"
-          end
-        end
-      else
-        ohai "Note: Cannot create system symlinks in #{usr_local_lib} (no write permission)"
-        ohai "Complete qemu-3dfx structure is available at: #{qemu_3dfx_root}"
-        ohai "You can manually symlink from #{usr_local_lib} to #{qemu_3dfx_root}/usr/local/lib/ if needed"
-      end
-    rescue => e
-      ohai "Note: Could not create system symlinks in #{usr_local_lib}: #{e.message}"
-      ohai "Complete qemu-3dfx structure is available at: #{qemu_3dfx_root}"
-      ohai "You can manually symlink from #{usr_local_lib} to #{qemu_3dfx_root}/usr/local/lib/ if needed"
-      ohai "This is expected on systems with System Integrity Protection (SIP) enabled"
-    end
-    
-    # Create a helpful script for manual symlink creation
-    setup_script = "#{qemu_3dfx_root}/setup_symlinks.sh"
-    File.write(setup_script, <<~SCRIPT)
-      #!/bin/bash
-      # QEMU 3dfx Manual Symlink Setup Script
-      # Run this script with sudo if system symlinks couldn't be created automatically
-      
-      QEMU_3DFX_ROOT="#{qemu_3dfx_root}"
-      USR_LOCAL_LIB="/usr/local/lib"
-      
-      echo "Creating system symlinks for QEMU 3dfx compatibility..."
-      
-      mkdir -p "$USR_LOCAL_LIB"
-      cd "$USR_LOCAL_LIB"
-      
-      # Create 3dfx library symlinks
-      for lib in libglide2x libglide3x; do
-          if [ -e "$QEMU_3DFX_ROOT/usr/local/lib/$lib.dylib" ]; then
-              rm -f "$lib.dylib"
-              ln -sf "$QEMU_3DFX_ROOT/usr/local/lib/$lib.dylib" "$lib.dylib"
-              echo "Created: $USR_LOCAL_LIB/$lib.dylib -> $QEMU_3DFX_ROOT/usr/local/lib/$lib.dylib"
-          fi
-      done
-      
-      # Create SDL2 symlink
-      if [ -e "$QEMU_3DFX_ROOT/usr/local/lib/libSDL2.dylib" ]; then
-          rm -f "libSDL2.dylib"
-          ln -sf "$QEMU_3DFX_ROOT/usr/local/lib/libSDL2.dylib" "libSDL2.dylib"
-          echo "Created: $USR_LOCAL_LIB/libSDL2.dylib -> $QEMU_3DFX_ROOT/usr/local/lib/libSDL2.dylib"
-      fi
-      
-      echo "System symlinks created successfully!"
-    SCRIPT
-    
-    chmod 0755, setup_script
-    ohai "Created manual setup script: #{setup_script}"
-    ohai "If system symlinks couldn't be created, run: sudo #{setup_script}"
   end
 
   def setup_x11_headers_for_mesa
@@ -819,7 +633,7 @@ class Qemu3dfx < Formula
   test do
     # Test version and 3dfx signature
     version_output = shell_output("#{bin}/qemu-system-x86_64 --version")
-    assert_match "qemu-3dfx@", version_output, "3dfx signature not found in version"
+    assert_match(/qemu-3dfx(-arch)?@/, version_output, "3dfx signature not found in version")
 
     # Test basic functionality
     system "#{bin}/qemu-system-x86_64", "--version"

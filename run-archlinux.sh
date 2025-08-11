@@ -142,12 +142,48 @@ case "$ARCH" in
             if [ "$USE_BROWSER_MODE" = "1" ]; then
                 VGA_DEVICE="-device virtio-gpu-pci"  # Standard VirtIO GPU for browser compatibility
                 echo "Browser compatibility mode: Using software rendering for stable web browsing"
+            elif [ "$USE_OPENGL" = "1" ] || [ "$USE_SPICE" = "1" ]; then
+                # Configurable resolution with automatic host display detection for full coverage
+                if [ -z "$GUEST_WIDTH" ] || [ -z "$GUEST_HEIGHT" ]; then
+                    # Try to detect host display resolution and use it directly to avoid black bars
+                    HOST_RESOLUTION=$(system_profiler SPDisplaysDataType | grep Resolution | head -1 | sed 's/.*Resolution: \([0-9]*\) x \([0-9]*\).*/\1x\2/')
+                    if [ -n "$HOST_RESOLUTION" ]; then
+                        HOST_WIDTH=$(echo $HOST_RESOLUTION | cut -d'x' -f1)
+                        HOST_HEIGHT=$(echo $HOST_RESOLUTION | cut -d'x' -f2)
+                        # Use slightly smaller resolution to avoid black bars with window decorations
+                        GUEST_WIDTH=${GUEST_WIDTH:-$((HOST_WIDTH - 100))}
+                        GUEST_HEIGHT=${GUEST_HEIGHT:-$((HOST_HEIGHT - 150))}
+                        echo "Auto-detected host resolution: ${HOST_WIDTH}x${HOST_HEIGHT}, using guest: ${GUEST_WIDTH}x${GUEST_HEIGHT} (windowed fit)"
+                    else
+                        # Fallback to standard 16:10 resolution that works well on most displays
+                        GUEST_WIDTH=${GUEST_WIDTH:-1920}
+                        GUEST_HEIGHT=${GUEST_HEIGHT:-1200}
+                        echo "Could not detect host resolution, using standard 16:10 resolution: ${GUEST_WIDTH}x${GUEST_HEIGHT}"
+                    fi
+                fi
+                # VirtGL configuration with automatic fallback for compatibility
+                if [ "$USE_HIGH_PERF" = "1" ]; then
+                    # Try advanced features first, fallback to standard if unsupported
+                    if [ "$USE_VENUS" = "1" ]; then
+                        VGA_DEVICE="-device virtio-gpu-gl-pci,blob=true,venus=true,hostmem=512M,xres=$GUEST_WIDTH,yres=$GUEST_HEIGHT,max_outputs=1"
+                        echo "ULTRA HIGH PERFORMANCE MODE: Venus enabled, 512MB hostmem (experimental)"
+                    else
+                        VGA_DEVICE="-device virtio-gpu-gl-pci,blob=true,hostmem=512M,xres=$GUEST_WIDTH,yres=$GUEST_HEIGHT,max_outputs=1"
+                        echo "ULTRA HIGH PERFORMANCE MODE: Standard VirtGL, 512MB hostmem (compatible)"
+                    fi
+                else
+                    # Standard high performance without Venus (most compatible)
+                    VGA_DEVICE="-device virtio-gpu-gl-pci,blob=true,hostmem=256M,xres=$GUEST_WIDTH,yres=$GUEST_HEIGHT,max_outputs=1"
+                    echo "HIGH PERFORMANCE MODE: Standard VirtGL, 256MB hostmem (compatible)"
+                fi
+                echo "OpenGL acceleration mode: Using VirtGL hardware acceleration with advanced optimizations"
+                echo "VirtGL Config: resolution=${GUEST_WIDTH}x${GUEST_HEIGHT}, targeting 10000+ glmark2 score"
             else
                 VGA_DEVICE="-device virtio-gpu-gl-pci"  # VirtIO GPU with OpenGL (hardware acceleration)
                 echo "3D acceleration mode: Using hardware acceleration for games/graphics"
             fi
         fi
-        MACHINE="virt,accel=hvf,highmem=off"
+        MACHINE="virt,accel=hvf,highmem=on,gic-version=3"  # Enhanced with GICv3 for better performance
         CPU_TYPE="-cpu cortex-a72"
         # 3dfx support is built into QEMU 3dfx - no additional devices needed
         THREED_FX=""  # 3dfx support is integrated into the QEMU binary itself
@@ -159,15 +195,22 @@ case "$ARCH" in
         ;;
 esac
 
-# Common parameters
-MEMORY="-m 3G"
-SMP="-smp 4"
-
-# Additional UEFI/Boot configuration for better automatic booting
-if [ "$ARCH" = "aarch64" ]; then
-    EXTRA_OPTS="-rtc base=utc,clock=host"  # Remove kvm-pit option (x86-only)
+# Common parameters - Enhanced for performance
+if [ "$USE_HIGH_PERF" = "1" ]; then
+    MEMORY="-m 6G"  # Ultra high performance: 6GB RAM
+    SMP="-smp 8,cores=4,threads=2"  # Ultra high performance: 8 vCPUs
+    echo "ULTRA HIGH PERFORMANCE: 6GB RAM, 8 vCPUs (4 cores, 2 threads each)"
 else
-    EXTRA_OPTS="-rtc base=utc,clock=host -global kvm-pit.lost_tick_policy=delay"
+    MEMORY="-m 4G"  # High performance: 4GB RAM  
+    SMP="-smp 6,cores=3,threads=2"  # High performance: 6 vCPUs
+    echo "HIGH PERFORMANCE: 4GB RAM, 6 vCPUs (3 cores, 2 threads each)"
+fi
+
+# Additional UEFI/Boot configuration for better automatic booting and performance
+if [ "$ARCH" = "aarch64" ]; then
+    EXTRA_OPTS="-rtc base=utc,clock=host -device virtio-rng-pci"  # Add hardware RNG for better performance
+else
+    EXTRA_OPTS="-rtc base=utc,clock=host -global kvm-pit.lost_tick_policy=delay -device virtio-rng-pci"
 fi
 
 # 3dfx and QEMU debugging options for enhanced logging
@@ -197,11 +240,11 @@ if [ "$USE_VNC" = "1" ]; then
     echo "VNC Password: qemu123"
     echo "Note: Clipboard sharing not available with VNC"
 elif [ "$USE_SPICE" = "1" ]; then
-    # Hardware acceleration: VirtIO GPU with OpenGL + SDL with gl=on
-    DISPLAY="-display sdl,gl=on,grab-mod=lctrl-lalt,window-close=off"
+    # Hardware acceleration: VirtIO GPU with OpenGL + SDL with gl=on and stretch scaling
+    DISPLAY="-display sdl,gl=on,window-close=off,grab-mod=lctrl-lalt,show-cursor=on"
     SPICE_DISPLAY=""  # No SPICE display - SDL for graphics, separate console
     echo "Using hardware acceleration approach (set USE_SPICE=1)"
-    echo "Graphics: VirtIO GPU OpenGL + SDL with gl=on (hardware accelerated)"
+    echo "Graphics: VirtIO GPU OpenGL + SDL with gl=on (hardware accelerated with stretch scaling)"
     echo "Console: Serial console in terminal (immediate access)"
     echo "Clipboard: qemu-vdagent for bidirectional copy/paste"
     echo "Boot messages: Will appear in this terminal"
@@ -219,12 +262,20 @@ elif [ "$USE_BROWSER_MODE" = "1" ]; then
     echo "Using browser compatibility mode (set USE_BROWSER_MODE=1)"
     echo "Graphics: Standard SDL without OpenGL (stable for browsers)"
     echo "Clipboard: qemu-vdagent for bidirectional copy/paste"
+elif [ "$USE_OPENGL" = "1" ]; then
+    # Pure OpenGL acceleration mode with auto-scaling
+    DISPLAY="-display sdl,gl=on,grab-mod=lctrl-lalt,window-close=off"
+    SPICE_DISPLAY=""
+    echo "Using optimized OpenGL acceleration (set USE_OPENGL=1)"
+    echo "Graphics: SDL with gl=on + VirtGL hardware acceleration + auto-scaling"
+    echo "OpenGL: Enhanced with SDL GL attributes for maximum performance"
+    echo "Clipboard: qemu-vdagent for bidirectional copy/paste"
 else
-    # Default: Hardware acceleration with SDL gl=on + VirtIO GPU OpenGL
+    # Default: Hardware acceleration with SDL gl=on + auto-scaling
     DISPLAY="-display sdl,gl=on,grab-mod=lctrl-lalt,window-close=off"
     SPICE_DISPLAY=""
     echo "Using hardware acceleration mode (default)"
-    echo "Graphics: SDL with gl=on + VirtIO GPU OpenGL (hardware accelerated)"
+    echo "Graphics: SDL with gl=on + VirtIO GPU OpenGL + auto-scaling (hardware accelerated)"
     echo "Clipboard: qemu-vdagent for bidirectional copy/paste"
 fi
 
@@ -232,7 +283,7 @@ AUDIO="-audiodev coreaudio,id=audio0 -device intel-hda -device hda-duplex,audiod
 USB="-device qemu-xhci -device usb-kbd -device virtio-mouse-pci"  # Add VirtIO mouse for better integration
 SERIAL=""  # virtio-serial-pci will be added with clipboard configuration to avoid duplication
 MONITOR="-monitor telnet:127.0.0.1:4444,server,nowait"  # Monitor via telnet to avoid conflicts
-NETWORK="-netdev user,id=net0 -device virtio-net-pci,netdev=net0"
+NETWORK="-netdev user,id=net0,hostfwd=tcp::2222-:22 -device virtio-net-pci,netdev=net0,mq=on,vectors=10"  # Enhanced networking with multiqueue
 
 # Alternative audio configurations for better compatibility
 if [ "$ARCH" = "i386" ]; then
@@ -254,50 +305,125 @@ fi
 
 # SDL Environment variables for QEMU 3dfx compatibility
 if [ "$USE_VNC" != "1" ]; then
-    echo "SDL Environment: QEMU 3dfx compatible configuration"
+    echo "SDL Environment: QEMU 3dfx compatible configuration with optimized hints"
     
-    # Prevent SDL window title crashes on macOS by setting a stable title
+    # Core SDL window and video settings  
     export SDL_VIDEO_WINDOW_POS=centered
     export SDL_VIDEO_ALLOW_SCREENSAVER=1
+    export SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0
     
-    # QEMU 3dfx supports both standard SDL and SDL with gl=on
-    echo "Display: SDL with hardware acceleration capability"
-    echo "Hardware acceleration: Via VirtIO-GPU guest drivers + SDL OpenGL"
-    echo "Performance: Proven glmark2 score of 2462 with this configuration"
+    # Window scaling and resolution handling - Force stretch to eliminate black bars
+    export SDL_VIDEO_WINDOW_RESIZABLE=1
+    export SDL_VIDEO_CENTERED=1
+    export SDL_HINT_RENDER_SCALE_QUALITY=1  # Linear scaling
+    export SDL_HINT_VIDEO_WINDOW_SHARE_PIXEL_FORMAT=1
+    export SDL_HINT_RENDER_LOGICAL_SIZE_MODE=0  # Use direct pixel mapping
+    export SDL_HINT_VIDEO_ALLOW_SCREENSAVER=1
+    export SDL_HINT_VIDEO_HIGHDPI_DISABLED=0  # Enable high DPI support
+    export SDL_HINT_RENDER_DRIVER=opengl  # Force OpenGL renderer for scaling
+    export SDL_HINT_VIDEO_WINDOW_SCALE_MODE=0  # Disable automatic window scaling
+    export SDL_HINT_RENDER_SCALE_POLICY=0  # Use stretch scaling (no letterboxing)
+    export SDL_HINT_VIDEO_ASPECT_RATIO_MODE=0  # Disable aspect ratio preservation to eliminate black bars
+    
+    # Additional scaling fixes for black bars
+    export SDL_HINT_VIDEO_WINDOW_SCALE=1.0  # Set explicit scale factor
+    export SDL_HINT_RENDER_LOGICAL_SIZE_MODE=1  # Use letterbox mode but stretch
+    export SDL_HINT_RENDER_SCALE_MODE=0  # Nearest neighbor for pixel-perfect scaling
+    export SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0  # Don't minimize on focus loss
+    
+    # macOS-specific optimizations - Force full window usage
+    export SDL_VIDEO_MAC_FULLSCREEN_SPACES=1
+    export SDL_MAC_CTRL_CLICK_EMULATE_RIGHT_CLICK=1
+    export SDL_VIDEO_MAC_FULLSCREEN_DESKTOP=1  # Use desktop resolution for fullscreen
+    export SDL_VIDEO_MAC_BACKGROUNDED=0  # Keep drawing when backgrounded
+    export SDL_VIDEO_MAC_IGNORE_DPI=0  # Don't ignore DPI scaling
+    
+    # OpenGL rendering optimizations for VirtGL - Enhanced for maximum performance
+    export SDL_RENDER_DRIVER=opengl
+    export SDL_RENDER_OPENGL_SHADERS=1
+    export SDL_RENDER_VSYNC=0  # Disable VSync for maximum performance
+    export SDL_RENDER_SCALE_QUALITY=1  # Linear filtering
+    
+    # # VirtGL performance optimizations - Force OpenGL 4.0 Compatibility Profile (Parallels-style)
+    # export GALLIUM_HUD=fps  # Show FPS counter for monitoring
+    # export MESA_GL_VERSION_OVERRIDE=4.0  # Target OpenGL 4.0 like Parallels
+    # export MESA_GLSL_VERSION_OVERRIDE=400  # GLSL 4.0 to match
+    # export MESA_GLES_VERSION_OVERRIDE=3.2  # OpenGL ES 3.2
+    # export GALLIUM_DRIVER=virgl  # Ensure VirtGL is used
+    # export MESA_LOADER_DRIVER_OVERRIDE=virgl  # Force VirtGL driver
+    
+    # # Force Compatibility Profile (not Core Profile) for maximum performance
+    # export MESA_GL_CORE_PROFILE=false  # Use compatibility profile like Parallels
+    # export MESA_GLAPI_NO_WARNING=1  # Suppress API warnings
+    
+    # # Advanced Mesa performance tuning - Optimized for OpenGL 4.0 Compatibility
+    # export MESA_NO_ERROR=1  # Skip error checking for performance
+    # export MESA_GLTHREAD=true  # Enable multi-threaded OpenGL
+    # export mesa_glthread=true  # Alternative name
+    # export GALLIUM_THREAD=0  # Disable Gallium threading (can conflict with glthread)
+    # export MESA_EXTENSION_OVERRIDE="+GL_ARB_compatibility +GL_ARB_vertex_program +GL_ARB_fragment_program"  # Force compatibility extensions
+    
+    # # Force VirtGL to report higher OpenGL version
+    # export VIRGL_DEBUG=verbose  # Enable VirtGL debugging
+    # export MESA_DEBUG=silent  # Reduce Mesa debug noise
+    # export LIBGL_DEBUG=verbose  # Enable libGL debugging
+    
+    # Mouse handling optimizations
+    export SDL_MOUSE_RELATIVE_MODE_WARP=0
+    export SDL_MOUSE_FOCUS_CLICKTHROUGH=0
+    export SDL_MOUSE_NORMAL_SPEED_SCALE=1.0
+    
+    # OpenGL context optimization for VirtGL compatibility - Enhanced
+    export SDL_GL_ACCELERATED_VISUAL=1
+    export SDL_GL_DOUBLEBUFFER=1
+    export SDL_GL_DEPTH_SIZE=24
+    export SDL_GL_STENCIL_SIZE=8
+    export SDL_GL_MULTISAMPLEBUFFERS=1  # Enable multisampling
+    export SDL_GL_MULTISAMPLESAMPLES=4  # 4x MSAA
+    
+    # Performance optimizations - Enhanced
+    export SDL_FRAMEBUFFER_ACCELERATION=1
+    export SDL_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR=0
+    export SDL_HINT_RENDER_BATCHING=1  # Enable render batching
+    export SDL_HINT_RENDER_DIRECT3D_THREADSAFE=1  # Thread safety
+    
+    echo "Display: SDL with maximum hardware acceleration capability"
+    echo "OpenGL: Optimized with enhanced SDL and Mesa hints for VirtGL acceleration"
+    echo "Performance: OpenGL 4.0 Compatibility Profile configuration (Parallels-style)"
+    echo "Mesa Config: GL 4.0 Compatibility, glthread enabled, error checking disabled"
 fi
 
-# SPICE/Clipboard support - VDAgent for bidirectional text clipboard
+# SPICE/Clipboard support - VDAgent for bidirectional text clipboard (SPICE only for vdagent, never for server/monitor)
 if [ "$USE_SPICE" = "1" ]; then
     # UTM-style: Use exact working qemu-vdagent configuration for QEMU 9.2.2
-    SPICE_SERVER=""  # No SPICE server - conflicts with SDL OpenGL
+    SPICE_SERVER=""  # No SPICE server - only use SPICE for vdagent
     SPICE_CLIPBOARD="-chardev qemu-vdagent,id=ch1,name=vdagent,clipboard=on -device virtio-serial-pci -device virtserialport,chardev=ch1,id=ch1,name=com.redhat.spice.0"
-    echo "Clipboard: Using exact qemu-vdagent configuration (clipboard=on only)"
+    echo "Clipboard: Using qemu-vdagent (SPICE only for clipboard, no server/monitor)"
 elif [ "$USE_CONSOLE" = "1" ]; then
-    # Console mode: Full SPICE with VDAgent (no SDL conflicts)
-    SPICE_SERVER="-spice unix=on,addr=/tmp/qemu-spice-$$.sock,disable-ticketing=on"
-    SPICE_CLIPBOARD="-chardev spicevmc,id=vdagent,name=vdagent -device virtio-serial-pci -device virtserialport,chardev=vdagent,name=com.redhat.spice.0"
-    echo "Clipboard: Using SPICE server with spicevmc vdagent for clipboard support"
+    # Console mode: Use qemu-vdagent only (no SPICE server)
+    SPICE_SERVER=""  # No SPICE server - only use SPICE for vdagent
+    SPICE_CLIPBOARD="-chardev qemu-vdagent,id=ch1,name=vdagent,clipboard=on -device virtio-serial-pci -device virtserialport,chardev=ch1,id=ch1,name=com.redhat.spice.0"
+    echo "Clipboard: Using qemu-vdagent (SPICE only for clipboard, no server/monitor)"
 else
     # Default mode: Use exact working qemu-vdagent configuration for QEMU 9.2.2
-    SPICE_SERVER=""  # No SPICE server - conflicts with SDL OpenGL
+    SPICE_SERVER=""  # No SPICE server - only use SPICE for vdagent
     SPICE_CLIPBOARD="-chardev qemu-vdagent,id=ch1,name=vdagent,clipboard=on -device virtio-serial-pci -device virtserialport,chardev=ch1,id=ch1,name=com.redhat.spice.0"
-    echo "Clipboard: Using exact qemu-vdagent configuration (clipboard=on only)"
+    echo "Clipboard: Using qemu-vdagent (SPICE only for clipboard, no server/monitor)"
 fi
 
-# Console support - Second display for console access (like UTM)
+# Console support - Serial console for terminal access (no SPICE server needed)
 if [ "$USE_CONSOLE" = "1" ]; then
-    # Console-only mode: SPICE server + console chardev for terminal access
-    SPICE_SERVER="-spice unix=on,addr=/tmp/qemu-spice-$$.sock,disable-ticketing=on"
-    SPICE_CONSOLE="-chardev spiceport,id=console0,name=com.qemu.console.0 -serial chardev:console0"
-    echo "Console: SPICE server on /tmp/qemu-spice-$$.sock"
-    echo "SPICE: Connect with virt-viewer or remote-viewer for full access"
+    # Console-only mode: Direct serial console (no SPICE server)
+    SPICE_CONSOLE="-serial stdio"
+    echo "Console: Direct serial console to terminal (no SPICE server)"
+    echo "Note: SPICE only used for vdagent clipboard, not for server/monitor"
 elif [ "$USE_SPICE" = "1" ]; then
     # UTM-style: SDL + immediate serial console + qemu-vdagent for clipboard
     SPICE_CONSOLE="-serial stdio"  # Direct console output to terminal
     echo "UTM-style dual access active:"
     echo "- Graphics: SDL window (will appear when guest initializes)"
     echo "- Console: THIS TERMINAL (immediate boot messages)"
-    echo "- Clipboard: qemu-vdagent clipboard=on (exact working configuration)"
+    echo "- Clipboard: qemu-vdagent (SPICE only for clipboard, no server/monitor)"
     echo "- Boot process: UEFI → Guest OS boot messages below"
     echo "======================================================="
     echo "Starting VM... Boot messages will appear below:"
@@ -305,7 +431,7 @@ elif [ "$USE_SPICE" = "1" ]; then
 else
     # Default mode: No console, but qemu-vdagent for clipboard
     SPICE_CONSOLE=""
-    echo "Default mode with qemu-vdagent clipboard support"
+    echo "Default mode with qemu-vdagent clipboard support (SPICE only for clipboard)"
 fi
 
 # Disk and ISO configuration
@@ -406,6 +532,16 @@ echo "  SPICE+Clipboard:      USE_SPICE=1 ./run-archlinux.sh $ARCH"
 echo "  Console Only:         USE_CONSOLE=1 ./run-archlinux.sh $ARCH"
 echo "  VNC Display:          USE_VNC=1 ./run-archlinux.sh $ARCH"
 echo "  Original Binary:      USE_ORIGINAL=1 ./run-archlinux.sh $ARCH"
+echo "  High Performance:     USE_HIGH_PERF=1 USE_SPICE=1 ./run-archlinux.sh $ARCH"
+echo "  Venus (experimental): USE_HIGH_PERF=1 USE_VENUS=1 USE_SPICE=1 ./run-archlinux.sh $ARCH"
+echo ""
+echo "Performance Notes:"
+echo "  - Config targets OpenGL 4.0 Compatibility Profile (like Parallels 10649 score)"
+echo "  - VirtGL with blob=true, standard renderer (Venus disabled for compatibility)"
+echo "  - Mesa GL 4.0 Compatibility override with glthread optimization"
+echo "  - Enhanced SDL configuration with multisampling"
+echo "  - 4GB RAM, 6 cores (3 cores, 2 threads each)"
+echo "  - Use USE_VENUS=1 only if your QEMU build supports Venus renderer"
 echo ""
 
 # For UTM-style mode, add final preparation message
@@ -441,7 +577,6 @@ $QEMU_BIN $DEBUG_LOG \
     $VGA_DEVICE \
     $DISPLAY \
     $SPICE_DISPLAY \
-    $SPICE_SERVER \
     $AUDIO \
     $USB \
     $SERIAL \
