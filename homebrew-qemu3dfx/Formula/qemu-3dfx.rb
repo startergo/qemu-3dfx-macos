@@ -133,6 +133,10 @@ class Qemu3dfx < Formula
                "-Dplatforms=",
                "-Dminigbm_allocation=false",
                "-Dvenus=false"
+               
+        # Build and install virglrenderer
+        system "ninja"
+        system "ninja", "install"
       end
     end
 
