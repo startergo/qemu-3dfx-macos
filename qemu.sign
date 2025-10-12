@@ -2,7 +2,7 @@
 
 CHECK_DEPS="\
 codesign
-xattr
+/usr/bin/xattr
 brew
 " \
 
@@ -149,7 +149,7 @@ for i in $SIGN_EXE; do
         continue
     fi
     echo "Signing: $i"
-    xattr -c $i 2>/dev/null || echo "Warning: Could not clear attributes for $i"
+    /usr/bin/xattr -c $i 2>/dev/null || echo "Warning: Could not clear attributes for $i"
     codesign -s - -i $IDEN -f $i || echo "Warning: Could not sign $i"
 done
 
