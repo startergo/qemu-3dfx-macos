@@ -13,8 +13,9 @@ echo
 export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_CLEANUP=1
 
-# Get the formula directory
-FORMULA_DIR="/Users/macbookpro/qemu-3dfx-1/homebrew-qemu3dfx"
+# Get the formula directory (relative to script location)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FORMULA_DIR="$SCRIPT_DIR"
 FORMULA_FILE="$FORMULA_DIR/Formula/qemu-3dfx.rb"
 
 echo "Formula directory: $FORMULA_DIR"
