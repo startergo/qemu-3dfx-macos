@@ -157,9 +157,9 @@ jobs:
         brew install git wget cmake ninja meson pkg-config pixman libffi python@3.12
         
         # Install Python modules required for virglrenderer build
-        # Install PyYAML for both system python3 and Homebrew python3.12
-        python3 -m pip install --break-system-packages PyYAML || true
-        /opt/homebrew/bin/python3.12 -m pip install --break-system-packages PyYAML || true
+        # Install PyYAML and distlib for both system python3 and Homebrew python3.12
+        python3 -m pip install --break-system-packages PyYAML distlib || true
+        /opt/homebrew/bin/python3.12 -m pip install --break-system-packages PyYAML distlib || true
         
         # Verify PyYAML is available for the Python version meson will use
         echo "Checking PyYAML availability:"
@@ -296,15 +296,8 @@ jobs:
           echo "📝 Created flag file: /tmp/apply_experimental_patches with value 'false'"
         fi
 
-        # Create local tap directory
-        TAP_DIR="$(brew --repository)/Library/Taps/startergo/homebrew-qemu3dfx"
-        mkdir -p "$TAP_DIR/Formula"
-        
-        # Copy formula to tap
-        cp Formula/qemu-3dfx.rb "$TAP_DIR/Formula/"
-        
-        # Install from tap
-        brew install startergo/qemu3dfx/qemu-3dfx
+        # Install using the existing test script which handles local installation properly
+        ./test-formula.sh
 
         # Verify installation
         echo "Verifying QEMU 3dfx installation..."
