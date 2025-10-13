@@ -14,7 +14,7 @@ class Qemu3dfx < Formula
   depends_on "meson" => :build
   depends_on "ninja" => :build
   depends_on "pkg-config" => :build
-  depends_on "python@3.12" => :build
+  depends_on "python@3.13" => :build
 
   # Runtime dependencies (matching official prerequisites for fresh system)
   # Core QEMU prerequisites from official documentation
@@ -71,27 +71,28 @@ class Qemu3dfx < Formula
     # Build virglrenderer first with macOS patches
     resource("virglrenderer").stage do
       # virglrenderer 1.1.1 needs PyYAML for u_format_table generation
-      # Ensure PyYAML is available in both Python 3.12 and 3.13
-      python312_bin = Formula["python@3.12"].opt_bin/"python3.12"
-      python313_bin = Formula["python@3.13"].opt_bin/"python3.13"
+      # Use Python 3.13 for better compatibility (3.14 is too new)
+      python_bin = Formula["python@3.13"].opt_bin/"python3.13"
       
-      # Install PyYAML in Python 3.12 if needed
-      unless quiet_system python312_bin, "-c", "import yaml"
-        ohai "Installing PyYAML in Python 3.12..."
-        system python312_bin, "-m", "pip", "install", "--break-system-packages", "PyYAML"
+      # Install PyYAML and distlib if needed
+      unless quiet_system python_bin, "-c", "import yaml"
+        ohai "Installing PyYAML in Python 3.13..."
+        system python_bin, "-m", "pip", "install", "--break-system-packages", "PyYAML"
       end
       
-      # Install PyYAML in Python 3.13 if needed (meson often finds this one)
-      unless quiet_system python313_bin, "-c", "import yaml"
-        ohai "Installing PyYAML in Python 3.13..."
-        system python313_bin, "-m", "pip", "install", "--break-system-packages", "PyYAML"
+      unless quiet_system python_bin, "-c", "import distlib"
+        ohai "Installing distlib in Python 3.13..."
+        system python_bin, "-m", "pip", "install", "--break-system-packages", "distlib"
       end
       
       ohai "PyYAML available for virglrenderer build"
       
       # Apply macOS compatibility patches to virglrenderer
-      macos_virgl_patch = "#{__dir__}/../../virgil3d/MINGW-packages/0001-Virglrenderer-on-Windows-and-macOS.patch"
-      if File.exist?(macos_virgl_patch)
+      # Find the repository root by looking for key files
+      repo_root = find_repo_root(__dir__)
+      macos_virgl_patch = "#{repo_root}/virgil3d/MINGW-packages/0001-Virglrenderer-on-Windows-and-macOS.patch" if repo_root
+      
+      if macos_virgl_patch
         # This patch contains essential macOS OpenGL compatibility fixes for virglrenderer:
         # - Apple-specific OpenGL vendor detection and handling (gl_apple flag)
         # - GLSL version adjustments (130->140) for macOS OpenGL compatibility
@@ -100,31 +101,55 @@ class Qemu3dfx < Formula
         # - Uniform buffer object extension fixes for Apple GL
         # - glClearTexSubImage feature detection
 
-        # Fix patch paths dynamically - remove version-specific prefixes
-        ohai "Applying virglrenderer macOS patch with dynamic path fixing"
-        fixed_patch = buildpath/"virgl_macos_fixed.patch"
-
-        # Read original patch and strip version-specific paths
+        ohai "Applying virglrenderer macOS patch with proper path conversion"
+        
+        # Initialize git repository for patch application
+        unless Dir.exist?(".git")
+          system "git", "init"
+          system "git", "add", "."
+          system "git", "commit", "-m", "Initial virglrenderer source"
+        end
+        
+        # Read and convert patch from diff format to git apply format
         patch_content = File.read(macos_virgl_patch)
-        # Remove paths like "virglrenderer-1.1.1/" and "orig/virglrenderer-1.1.1/"
-        fixed_content = patch_content.gsub(%r{\b(?:orig/)?virglrenderer-[\d.]+/}, "")
-
-        # Write fixed patch
+        
+        # Convert from diff -Nru format to git diff format
+        # Replace "diff -Nru orig/virglrenderer-1.1.1/path src/virglrenderer-1.1.1/path"
+        # with "diff --git a/path b/path"
+        fixed_content = patch_content.gsub(/^diff -Nru orig\/virglrenderer-[\d.]+\/(.+?) src\/virglrenderer-[\d.]+\/(.+?)$/m) do |match|
+          file_path = $1
+          "diff --git a/#{file_path} b/#{file_path}"
+        end
+        
+        # Replace "--- orig/virglrenderer-1.1.1/path" with "--- a/path"
+        fixed_content = fixed_content.gsub(/^--- orig\/virglrenderer-[\d.]+\/(.+)$/m, "--- a/\\1")
+        
+        # Replace "+++ src/virglrenderer-1.1.1/path" with "+++ b/path"
+        fixed_content = fixed_content.gsub(/^\+\+\+ src\/virglrenderer-[\d.]+\/(.+)$/m, "+++ b/\\1")
+        
+        # CRITICAL FIX: Remove any remaining virglrenderer-x.x.x/ prefixes from file paths
+        # This handles cases where the patch still contains version-specific directory prefixes
+        fixed_content = fixed_content.gsub(/virglrenderer-[\d.]+\//, "")
+        
+        # Write and apply the converted patch
+        fixed_patch = buildpath/"virgl_macos_converted.patch"
         File.write(fixed_patch, fixed_content)
-
-        # Apply the fixed patch
-        system "git", "apply", fixed_patch
-
-        # Clean up temporary patch file
+        
+        # Apply the converted patch
+        system "git", "apply", "--verbose", fixed_patch
+        
+        # Clean up
         rm fixed_patch
+      else
+        ohai "Warning: virglrenderer macOS patch not found at #{macos_virgl_patch}"
       end
 
       mkdir "build" do
-        # Set Python path to ensure virglrenderer uses Python 3.12 with PyYAML
+        # Set Python path to ensure virglrenderer uses Python 3.13 with PyYAML
         # Override PATH to ensure meson finds the correct Python
-        python312_bin = Formula["python@3.12"].opt_bin/"python3.12"
-        ENV["PYTHON"] = python312_bin
-        ENV.prepend_path "PATH", Formula["python@3.12"].opt_bin
+        python_bin = Formula["python@3.13"].opt_bin/"python3.13"
+        ENV["PYTHON"] = python_bin
+        ENV.prepend_path "PATH", Formula["python@3.13"].opt_bin
         
         system "meson", "setup", "..",
                "--prefix=#{prefix}",
@@ -196,6 +221,31 @@ class Qemu3dfx < Formula
     # Upstream: ../qemu-10.0.0/configure --target-list=i386-softmmu --prefix=$(pwd)/../install_dir
     ohai "Creating separate build directory (upstream sequence: mkdir ../build && cd ../build)"
     
+    # Add essential Apple framework linker flags for SDL2 support on macOS
+    # SDL2 requires these frameworks to link properly
+    apple_frameworks = [
+      "-framework AudioToolbox",
+      "-framework CoreAudio", 
+      "-framework CoreGraphics",
+      "-framework CoreFoundation",
+      "-framework AppKit",
+      "-framework IOKit",
+      "-framework ForceFeedback",
+      "-framework GameController",
+      "-framework Carbon",
+      "-framework Cocoa",
+      "-framework CoreHaptics",
+      "-framework CoreVideo",
+      "-framework Metal",
+      "-framework MetalKit",
+      "-framework OpenGL"
+    ].join(" ")
+    
+    ENV.append "LDFLAGS", apple_frameworks
+    ENV.append "LIBS", apple_frameworks
+    
+    ohai "Added Apple framework linker flags for SDL2 support"
+    
     # Create build directory at buildpath level (since QEMU source is in buildpath)
     mkdir "build" do
       ohai "Configuring QEMU from build directory (upstream: ../qemu-10.0.0/configure)..."
@@ -242,7 +292,8 @@ class Qemu3dfx < Formula
 
   def post_install
     # Sign the binaries with matching commit ID after installation
-    repo_dir = File.expand_path("../..", __dir__)
+    repo_dir = find_repo_root(__dir__)
+    return unless repo_dir
     
     # Get the same commit ID used during build
     commit_id = `cd #{repo_dir} && git rev-parse --short HEAD`.strip
@@ -297,19 +348,13 @@ class Qemu3dfx < Formula
       system "git", "commit", "-m", "Initial QEMU source import"
     end
     
-    # Calculate paths relative to qemu-9.2.2/ directory (where we are now)
-    # Formula __dir__ points to: /Users/.../qemu-3dfx-1/homebrew-qemu3dfx/Formula/
-    # We need to go up to qemu-3dfx-1/ root: ../../
-    repo_root = File.expand_path("../../", __dir__)
-    ohai "Repository root: #{repo_root}"
-    
-    # Verify we found the correct repository root
-    unless File.exist?("#{repo_root}/qemu-0") && File.exist?("#{repo_root}/00-qemu100x-mesa-glide.patch")
-      ohai "Warning: Repository root detection may be incorrect"
-      ohai "Expected files missing in #{repo_root}"
-      ohai "Looking for qemu-0/, 00-qemu100x-mesa-glide.patch"
-      ohai "Formula __dir__: #{__dir__}"
+    # Find repository root using helper method
+    repo_root = find_repo_root(__dir__)
+    if repo_root.nil?
+      odie "Could not locate qemu-3dfx repository root! Ensure all required files are present."
     end
+    
+    ohai "Repository root: #{repo_root}"
     
     # Step 1: Copy 3dfx and mesa source files FIRST (matching upstream rsync command)
     # Upstream: rsync -r ../qemu-0/hw/3dfx ../qemu-1/hw/mesa ./hw/
@@ -450,7 +495,11 @@ class Qemu3dfx < Formula
   end
 
   def copy_3dfx_wrapper_sources
-    wrappers_dir = "#{__dir__}/../../wrappers"
+    # Find repository root and use relative paths
+    repo_root = find_repo_root(__dir__)
+    return unless repo_root
+    
+    wrappers_dir = "#{repo_root}/wrappers"
     return unless Dir.exist?(wrappers_dir)
 
     ohai "Copying 3dfx wrapper sources for manual building..."
@@ -620,18 +669,83 @@ class Qemu3dfx < Formula
     sign_dir = "#{prefix}/sign"
     mkdir_p sign_dir
     
-    rsrc_file = "#{__dir__}/../../qemu.rsrc"
-    sign_file = "#{__dir__}/../../qemu.sign"
+    # Find repository root and use relative paths
+    repo_root = find_repo_root(__dir__)
+    if repo_root
+      rsrc_file = "#{repo_root}/qemu.rsrc"
+      sign_file = "#{repo_root}/qemu.sign"
+      
+      if File.exist?(rsrc_file)
+        cp rsrc_file, "#{sign_dir}/qemu.rsrc"
+        ohai "Copied qemu.rsrc to #{sign_dir}/"
+      end
+      
+      if File.exist?(sign_file)
+        cp sign_file, "#{sign_dir}/qemu.sign"
+        ohai "Copied qemu.sign to #{sign_dir}/"
+      end
+    else
+      ohai "Warning: Could not locate repository root - signing files not copied"
+    end
+  end
+
+  def find_repo_root(start_dir)
+    # Look for key files that indicate we're in the qemu-3dfx repository root
+    key_files = ["00-qemu100x-mesa-glide.patch", "qemu-0", "virgil3d"]
     
-    if File.exist?(rsrc_file)
-      cp rsrc_file, "#{sign_dir}/qemu.rsrc"
-      ohai "Copied qemu.rsrc to #{sign_dir}/"
+    # First, try to find the repository root by walking up from start_dir
+    current_dir = File.expand_path(start_dir)
+    
+    # Walk up the directory tree looking for the repository root
+    15.times do  # Increased limit for deeper directory structures
+      if key_files.all? { |file| File.exist?(File.join(current_dir, file)) }
+        ohai "Repository root found: #{current_dir}"
+        return current_dir
+      end
+      
+      parent_dir = File.dirname(current_dir)
+      break if parent_dir == current_dir  # Reached filesystem root
+      current_dir = parent_dir
     end
     
-    if File.exist?(sign_file)
-      cp sign_file, "#{sign_dir}/qemu.sign"
-      ohai "Copied qemu.sign to #{sign_dir}/"
+    # If not found by walking up, try common locations where the repo might be
+    potential_locations = [
+      # When running from Homebrew tap, look for the original repo
+      ENV["HOMEBREW_CACHE"],
+      "/tmp",
+      File.expand_path("~"),
+      "/Users/#{ENV["USER"]}",
+      # Look in common development directories
+      "/Users/#{ENV["USER"]}/qemu-3dfx-1",
+      "/Users/#{ENV["USER"]}/qemu-3dfx-macos", 
+      "/Users/#{ENV["USER"]}/Documents/qemu-3dfx-1",
+      "/Users/#{ENV["USER"]}/Downloads/qemu-3dfx-1"
+    ].compact
+    
+    potential_locations.each do |base_dir|
+      next unless Dir.exist?(base_dir)
+      
+      # Look for qemu-3dfx directories in this location
+      Dir.glob("#{base_dir}/*qemu-3dfx*").each do |candidate|
+        next unless File.directory?(candidate)
+        
+        if key_files.all? { |file| File.exist?(File.join(candidate, file)) }
+          ohai "Repository root found in common location: #{candidate}"
+          return candidate
+        end
+      end
     end
+    
+    # Last resort: check if we can find files relative to the current working directory
+    if Dir.pwd != start_dir
+      cwd_check = find_repo_root(Dir.pwd)
+      return cwd_check if cwd_check
+    end
+    
+    ohai "Warning: Repository root not found. Searched from #{start_dir}"
+    ohai "Looking for files: #{key_files.join(', ')}"
+    ohai "Checked locations: #{potential_locations.join(', ')}"
+    nil  # Repository root not found
   end
 
   test do

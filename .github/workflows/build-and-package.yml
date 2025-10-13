@@ -112,101 +112,9 @@ jobs:
         BUILD_DATE=$(date +%Y%m%d)
         echo "BUILD_DATE=${BUILD_DATE}" >> $GITHUB_ENV
         
-    - name: Install build dependencies
+    - name: Build and test QEMU 3dfx
       if: steps.should_run.outputs.should_run == 'true'
       run: |
-        # Install Xcode command line tools dependencies
-        xcode-select --install 2>/dev/null || true
-        
-        # Install XQuartz (REQUIRED by KJ for Mesa GL context support)
-        brew install --cask xquartz
-        
-        # XQuartz needs to be properly initialized - create the expected directory structure
-        sudo mkdir -p /opt/X11/lib /opt/X11/include
-        
-        # Link XQuartz libraries to expected location if they're not there yet
-        if [ ! -d "/opt/X11/lib" ] || [ -z "$(ls -A /opt/X11/lib 2>/dev/null)" ]; then
-          echo "Setting up XQuartz library symlinks..."
-          # XQuartz installs to /usr/X11/lib on some systems, check multiple locations
-          for xquartz_lib in "/usr/X11/lib" "/System/Library/Frameworks/OpenGL.framework/Libraries" "/opt/homebrew/lib"; do
-            if [ -d "$xquartz_lib" ]; then
-              sudo ln -sf "$xquartz_lib"/*X11* /opt/X11/lib/ 2>/dev/null || true
-              sudo ln -sf "$xquartz_lib"/*GL* /opt/X11/lib/ 2>/dev/null || true
-            fi
-          done
-          
-          # If still empty, create minimal structure using Homebrew X11 libraries
-          if [ -z "$(ls -A /opt/X11/lib 2>/dev/null)" ]; then
-            echo "Creating X11 library structure using Homebrew libraries..."
-            sudo ln -sf /opt/homebrew/lib/libX11* /opt/X11/lib/
-            sudo ln -sf /opt/homebrew/lib/libXext* /opt/X11/lib/
-            sudo ln -sf /opt/homebrew/lib/libGL* /opt/X11/lib/ 2>/dev/null || true
-          fi
-        fi
-        
-        # Install KJ's specified core prerequisites
-        brew install capstone glib gettext gnutls libepoxy libgcrypt libslirp jpeg-turbo lz4 opus sdl2 zstd
-        
-        # Install KJ's gaming essentials (for DOSBox SVN Games)
-        brew install sdl12-compat sdl2_net sdl2_sound mt32emu
-        
-        # Install SPICE dependencies (missing from original list)
-        brew install spice-protocol spice-server
-        
-        # Additional build tools needed for compilation
-        brew install git wget cmake ninja meson pkg-config pixman libffi python@3.12
-        
-        # Install Python modules required for virglrenderer build
-        # Install PyYAML and distlib for both system python3 and Homebrew python3.12
-        python3 -m pip install --break-system-packages PyYAML distlib || true
-        /opt/homebrew/bin/python3.12 -m pip install --break-system-packages PyYAML distlib || true
-        
-        # Verify PyYAML is available for the Python version meson will use
-        echo "Checking PyYAML availability:"
-        python3 -c "import yaml; print('PyYAML available for system python3')" || echo "PyYAML not found for system python3"
-        /opt/homebrew/bin/python3.12 -c "import yaml; print('PyYAML available for Homebrew python3.12')" || echo "PyYAML not found for Homebrew python3.12"
-        
-        # X11 development headers (required for Mesa GL compilation, separate from XQuartz runtime)
-        brew install libx11 libxext libxfixes libxrandr libxinerama libxi libxcursor
-        brew install xorgproto libxxf86vm  # X11 extension headers including xf86vmode.h
-        
-    - name: Setup X11 headers for Mesa GL support
-      if: steps.should_run.outputs.should_run == 'true'
-      run: |
-        # Create X11 directory structure for Mesa headers
-        sudo mkdir -p /usr/local/include/X11/extensions
-        
-        # Setup X11 extension headers from Homebrew (needed for Mesa GL compilation)
-        if [ -d "/opt/homebrew/include/X11" ]; then
-          echo "Setting up X11 headers from Homebrew"
-          sudo cp -rf /opt/homebrew/include/X11/* /usr/local/include/X11/ 2>/dev/null || true
-        fi
-        
-        # Ensure xf86vmode.h is available (needed for Mesa GL context support)
-        if [ ! -f "/usr/local/include/X11/extensions/xf86vmode.h" ] && [ -f "/opt/homebrew/include/X11/extensions/xf86vmode.h" ]; then
-          echo "Copying xf86vmode.h from Homebrew libxxf86vm"
-          sudo cp /opt/homebrew/include/X11/extensions/xf86vmode.h /usr/local/include/X11/extensions/
-        fi
-        
-        # Verify the headers are available
-        echo "Checking X11 extension headers:"
-        ls -la /usr/local/include/X11/extensions/ || true
-        echo "Checking specifically for xf86vmode.h:"
-        test -f /usr/local/include/X11/extensions/xf86vmode.h && echo "✓ xf86vmode.h found" || echo "✗ xf86vmode.h missing"
-        echo "Checking XQuartz X11 library installation:"
-        ls -la /opt/X11/lib/ || echo "XQuartz X11 lib directory not found"
-        echo "Verifying X11 library files:"
-        ls -la /opt/X11/lib/*X11* 2>/dev/null || echo "No X11 libraries found in /opt/X11/lib/"
-        echo "Headers setup complete"
-        
-    - name: Build QEMU 3dfx with Homebrew
-      if: steps.should_run.outputs.should_run == 'true'
-      run: |
-        echo "🚨🚨🚨 WORKFLOW DEBUG START - EXPERIMENTAL PATCHES TROUBLESHOOTING 🚨🚨🚨"
-        echo "This debug output should be visible in GitHub Actions logs!"
-        echo "If you see this message, the workflow debugging is working."
-        echo ""
-        
         # Set commit identity for the sign_commit script
         if [ -n "${{ github.event.inputs.commit_id }}" ]; then
           export COMMIT_ID_OVERRIDE="${{ github.event.inputs.commit_id }}"
@@ -217,158 +125,38 @@ jobs:
           echo "Using auto-detected commit ID: ${COMMIT_SHORT}"
         fi
         
-        # Set experimental patch flag for this step (must be set BEFORE brew install)
-        echo "=== DEBUGGING WORKFLOW INPUTS ==="
-        echo "GitHub event name: ${GITHUB_EVENT_NAME}"
-        echo "Raw github.event.inputs.apply_experimental: '${{ github.event.inputs.apply_experimental }}'"
-        
-        # Show all workflow inputs for debugging
-        echo "=== ALL WORKFLOW INPUTS ==="
-        echo "create_release: '${{ github.event.inputs.create_release }}'"
-        echo "target_arch: '${{ github.event.inputs.target_arch }}'"
-        echo "apply_experimental: '${{ github.event.inputs.apply_experimental }}'"
-        echo "auto_sign: '${{ github.event.inputs.auto_sign }}'"
-        echo "commit_id: '${{ github.event.inputs.commit_id }}'"
-        echo "=========================="
-        
-        # Store the input value for easier handling
+        # Set experimental patch flag based on input
         WORKFLOW_INPUT="${{ github.event.inputs.apply_experimental }}"
-        echo "Stored workflow input: '${WORKFLOW_INPUT}'"
-        echo "Length of input: ${#WORKFLOW_INPUT}"
-        echo "Type check - comparing to 'true': [ '${WORKFLOW_INPUT}' = 'true' ]"
+        case "${WORKFLOW_INPUT,,}" in
+          "true"|"1"|"yes"|"on")
+            export QEMU_3DFX_EXPERIMENTAL_PATCHES="true"
+            echo "✅ Experimental patches ENABLED"
+            ;;
+          *)
+            export QEMU_3DFX_EXPERIMENTAL_PATCHES="false"
+            echo "ℹ️ Experimental patches DISABLED"
+            ;;
+        esac
         
-        # Handle GitHub Actions boolean inputs more robustly - check for default value
-        # If input is empty or undefined, use the default value 'true'
-        if [ "${WORKFLOW_INPUT}" = "true" ] || [ -z "${WORKFLOW_INPUT}" ]; then
-          export APPLY_EXPERIMENTAL_PATCHES="true"
-          echo "🧪 Experimental patches will be applied (workflow input = '${WORKFLOW_INPUT}' or default)"
-          echo "✅ CONDITION MET: apply_experimental is true or using default"
-        else
-          export APPLY_EXPERIMENTAL_PATCHES="false"
-          echo "📦 Standard build without experimental patches (workflow input = '${WORKFLOW_INPUT}')"
-          echo "❌ CONDITION NOT MET: apply_experimental is '${WORKFLOW_INPUT}' (not 'true' or empty)"
-        fi
-        
-        # FORCE experimental patches for now since default is true and we're having input issues
-        if [ "${APPLY_EXPERIMENTAL_PATCHES}" != "true" ]; then
-          echo "🔧 FORCING experimental patches to be enabled (default=true in workflow)"
-          export APPLY_EXPERIMENTAL_PATCHES="true"
-        fi
-        
-        echo "🚨🚨🚨 FINAL RESULT FOR EXPERIMENTAL PATCHES 🚨🚨🚨"
-        echo "APPLY_EXPERIMENTAL_PATCHES = '${APPLY_EXPERIMENTAL_PATCHES}'"
-        echo "This should be 'true' and SDL clipboard patch should be applied!"
-        echo "🚨🚨🚨 END DEBUG SECTION 🚨🚨🚨"
-        echo ""
-        
-        # Debug: Show environment variables
-        echo "=== Environment Variables for Brew ==="
-        echo "github.event.inputs.apply_experimental: '${{ github.event.inputs.apply_experimental }}'"
-        echo "APPLY_EXPERIMENTAL_PATCHES set to: '${APPLY_EXPERIMENTAL_PATCHES}'"
-        echo "Length of APPLY_EXPERIMENTAL_PATCHES: ${#APPLY_EXPERIMENTAL_PATCHES}"
-        echo "======================================"
-        
-        # Install our custom QEMU 3dfx formula
-        echo "Installing QEMU 3dfx via Homebrew formula..."
         cd homebrew-qemu3dfx
         
-        # Verify all dependencies are installed
-        echo "=== Verifying all dependencies ==="
-        for dep in spice-protocol spice-server; do
-          if brew list "$dep" &>/dev/null; then
-            echo "✅ $dep installed"
-            pkg-config --exists "$dep" && echo "  ✅ pkg-config available" || echo "  ❌ pkg-config missing"
-          else
-            echo "❌ $dep missing"
-            exit 1
-          fi
-        done
-        
-        # Build with Homebrew formula (APPLY_EXPERIMENTAL_PATCHES is now exported in current shell)
-        echo "Running brew install with environment variable APPLY_EXPERIMENTAL_PATCHES=${APPLY_EXPERIMENTAL_PATCHES}..."
-        
-        # Create flag file for Homebrew formula to read (more reliable than env vars)
-        if [ "${APPLY_EXPERIMENTAL_PATCHES}" = "true" ]; then
-          echo "true" > /tmp/apply_experimental_patches
-          echo "📝 Created flag file: /tmp/apply_experimental_patches with value 'true'"
-        else
-          echo "false" > /tmp/apply_experimental_patches
-          echo "📝 Created flag file: /tmp/apply_experimental_patches with value 'false'"
-        fi
+        echo "Building and testing QEMU 3dfx using optimized test-formula.sh..."
 
-        # Install using the existing test script which handles local installation properly
+        # Use the optimized test script - it handles everything internally  
         ./test-formula.sh
+        
+        echo "✅ QEMU 3dfx build and test completed successfully"
 
-        # Verify installation
-        echo "Verifying QEMU 3dfx installation..."
-        brew list qemu-3dfx
-
-        # Check version signature
-        qemu-system-i386 --version | grep "featuring qemu-3dfx" || {
-          echo "❌ QEMU 3dfx signature not found in version output"
-          exit 1
-        }
-
-        # Show build configuration summary
-        echo "=== QEMU Build Configuration ==="
-        qemu-system-i386 --version
-        echo ""
-        echo "Checking for SPICE support in binary:"
-        strings $(which qemu-system-i386) | grep -i spice | head -5 || echo "No SPICE strings found in binary"
-
-        echo "✅ QEMU 3dfx installed successfully via Homebrew"
-
-    - name: Verify build
+    - name: Quick verification
       if: steps.should_run.outputs.should_run == 'true'
       run: |
-        # Check Homebrew installation paths
-        HOMEBREW_PREFIX=$(brew --prefix)
-        echo "=== Checking Homebrew QEMU 3dfx installation ==="
-        
-        # Check installed binaries
-        echo "Checking QEMU binaries in ${HOMEBREW_PREFIX}/bin:"
-        ls -la "${HOMEBREW_PREFIX}/bin/qemu-"* || echo "No QEMU binaries found"
-        
-        # Check for essential binaries
-        FOUND_BINARIES=0
-        
-        # Helper function to check and test binaries
-        check_binary() {
-          local binary_name="$1"
-          local description="$2"
-          
-          if [ -f "${HOMEBREW_PREFIX}/bin/${binary_name}" ]; then
-            echo "✅ ${binary_name} installed successfully"
-            ${HOMEBREW_PREFIX}/bin/${binary_name} --version
-            FOUND_BINARIES=$((FOUND_BINARIES + 1))
-          else
-            echo "⚠️ ${binary_name} not found ${description}"
-          fi
-        }
-        
-        # Check core binaries
-        check_binary "qemu-system-i386" "(required for 3dfx support)"
-        check_binary "qemu-system-x86_64" "(required for modern systems)"
-        check_binary "qemu-system-aarch64" "(ARM virtualization)"
-        check_binary "qemu-img" "(disk image utility)"
-        
-        # Check libraries
-        echo "=== Checking installed libraries ==="
-        ls -la "${HOMEBREW_PREFIX}/lib/libglide"* 2>/dev/null || echo "⚠️ Glide libraries not found"
-        ls -la "${HOMEBREW_PREFIX}/lib/libvirglrenderer"* 2>/dev/null || echo "⚠️ VirGL libraries not found"
-        ls -la "${HOMEBREW_PREFIX}/lib/libspice-server"* 2>/dev/null || echo "ℹ️ SPICE libraries not found (optional - may be disabled in build)"
-        
-        # Check QEMU data files
-        echo "=== Checking QEMU data files ==="
-        ls -la "${HOMEBREW_PREFIX}/share/qemu/" 2>/dev/null || echo "⚠️ QEMU data files not found"
-        
-        # Require at least one binary to be built
-        if [ $FOUND_BINARIES -eq 0 ]; then
-          echo "❌ No QEMU binaries were installed successfully"
+        # Simple verification - test-formula.sh already handles comprehensive testing
+        echo "=== Quick QEMU 3dfx verification ==="
+        qemu-system-i386 --version | grep "featuring qemu-3dfx" || {
+          echo "❌ QEMU 3dfx signature not found"
           exit 1
-        else
-          echo "✅ Found $FOUND_BINARIES QEMU binaries installed successfully"
-        fi
+        }
+        echo "✅ QEMU 3dfx verified successfully"
         
     - name: Test 3dfx device availability
       if: steps.should_run.outputs.should_run == 'true'

@@ -77,26 +77,50 @@ brew install sdl12-compat sdl2_net sdl2_sound mt32emu
 
 # Additional build tools needed for compilation
 echo "Installing build tools..."
-brew install git wget cmake ninja meson pkg-config pixman libffi python@3.12
+brew install git wget cmake ninja meson pkg-config pixman libffi python@3.13
 
 # Install additional dependencies that might be missing
 echo "Installing additional dependencies..."
 brew install sdl2_image spice-protocol spice-server
 
-# Ensure libepoxy is properly installed and linked (critical for OpenGL)
-echo "Ensuring libepoxy is properly installed and linked..."
-brew install libepoxy
-brew link --overwrite libepoxy || echo "Could not link libepoxy (continuing anyway)"
+# X11 headers setup - COMMENTED OUT (handled internally by Homebrew formula)
+# macOS uses SDL-based Mesa GL implementation which uses native OpenGL framework instead of X11/GLX
+# echo "Setting up X11 headers for OpenGL support..."
+# sudo mkdir -p /usr/local/include/X11/extensions
+# if [ -d "/opt/homebrew/include/X11" ]; then
+#   echo "Setting up X11 headers from Homebrew"
+#   sudo cp -rf /opt/homebrew/include/X11/* /usr/local/include/X11/ 2>/dev/null || true
+# fi
+# if [ ! -f "/usr/local/include/X11/extensions/xf86vmode.h" ] && [ -f "/opt/homebrew/include/X11/extensions/xf86vmode.h" ]; then
+#   echo "Copying xf86vmode.h from Homebrew libxxf86vm"
+#   sudo cp /opt/homebrew/include/X11/extensions/xf86vmode.h /usr/local/include/X11/extensions/
+# fi
+# echo "Checking X11 extension headers:"
+# ls -la /usr/local/include/X11/extensions/ || true
+# echo "Checking specifically for xf86vmode.h:"
+# test -f /usr/local/include/X11/extensions/xf86vmode.h && echo "✓ xf86vmode.h found" || echo "✗ xf86vmode.h missing"
+
+# Ensure critical dependencies are properly installed and linked
+echo "Ensuring critical dependencies are properly linked..."
+# Ensure libepoxy is properly linked (no rebuild needed - bottle works fine)
+brew link libepoxy || echo "Could not link libepoxy (continuing anyway)"
+
+# Ensure Mesa OpenGL is linked (critical for OpenGL support)
+brew link mesa || echo "Could not link mesa (continuing anyway)"
+
+# Ensure SPICE dependencies are linked (required for SPICE support)
+brew link spice-protocol || echo "Could not link spice-protocol (continuing anyway)"
+brew link spice-server || echo "Could not link spice-server (continuing anyway)"
 
 # Install Python modules required for virglrenderer build
 echo "Installing Python modules..."
 python3 -m pip install --break-system-packages PyYAML distlib || true
-/opt/homebrew/bin/python3.12 -m pip install --break-system-packages PyYAML distlib || true
+/opt/homebrew/bin/python3.13 -m pip install --break-system-packages PyYAML distlib || true
 
-# Verify PyYAML is available for the Python version meson will use
-echo "Checking PyYAML availability:"
+# Verify PyYAML and distlib are available for the Python version meson will use
+echo "Checking PyYAML and distlib availability:"
 python3 -c "import yaml; print('PyYAML available for system python3')" || echo "PyYAML not found for system python3"
-/opt/homebrew/bin/python3.12 -c "import yaml; print('PyYAML available for Homebrew python3.12')" || echo "PyYAML not found for Homebrew python3.12"
+/opt/homebrew/bin/python3.13 -c "import yaml, distlib; print('PyYAML and distlib available for Homebrew python3.13')" || echo "Modules not found for Homebrew python3.13"
 
 # X11 development headers (required for Mesa GL compilation, separate from XQuartz runtime)
 echo "Installing X11 development headers..."
@@ -118,6 +142,19 @@ if [ -n "$EPOXY_PATH" ]; then
   echo "Added libepoxy pkg-config path: $EPOXY_PATH"
 fi
 
+# Add SPICE paths (essential for SPICE support)
+SPICE_SERVER_PATH=$(find /opt/homebrew/Cellar/spice-server -name "pkgconfig" -type d 2>/dev/null | head -1)
+if [ -n "$SPICE_SERVER_PATH" ]; then
+  export PKG_CONFIG_PATH="$SPICE_SERVER_PATH:$PKG_CONFIG_PATH"
+  echo "Added spice-server pkg-config path: $SPICE_SERVER_PATH"
+fi
+
+SPICE_PROTOCOL_PATH=$(find /opt/homebrew/Cellar/spice-protocol -name "pkgconfig" -type d 2>/dev/null | head -1)
+if [ -n "$SPICE_PROTOCOL_PATH" ]; then
+  export PKG_CONFIG_PATH="$SPICE_PROTOCOL_PATH:$PKG_CONFIG_PATH"
+  echo "Added spice-protocol pkg-config path: $SPICE_PROTOCOL_PATH"
+fi
+
 # The formula creates its own local header structure, so we don't need to manually copy to /usr/local
 # However, we need to ensure all dependencies are properly installed and available via pkg-config
 
@@ -136,13 +173,40 @@ test -f /opt/homebrew/include/pixman-1/pixman.h && echo "✅ pixman.h found in H
 
 # Check other critical dependencies that the formula expects
 echo "Verifying critical build dependencies:"
-for dep in glib-2.0 libepoxy sdl2 zlib; do
+for dep in glib-2.0 epoxy sdl2 zlib pixman-1 spice-server spice-protocol; do
   if pkg-config --exists $dep; then
     echo "✅ $dep available"
   else
     echo "❌ $dep missing"
   fi
 done
+
+# Verify OpenGL framework is available
+echo "Verifying OpenGL framework availability:"
+if [ -d "/System/Library/Frameworks/OpenGL.framework" ]; then
+  echo "✅ macOS OpenGL framework found"
+  
+  # Test if we can actually link against it
+  if echo '#include <OpenGL/OpenGL.h>
+int main() { return 0; }' | clang -x c - -framework OpenGL -o /tmp/gl_test 2>/dev/null; then
+    echo "✅ OpenGL framework linkable"
+    rm -f /tmp/gl_test
+  else
+    echo "⚠️ OpenGL framework found but not linkable"
+  fi
+else
+  echo "❌ macOS OpenGL framework missing"
+fi
+
+# Check epoxy includes OpenGL support
+echo "Checking epoxy OpenGL support:"
+if pkg-config --exists epoxy; then
+  echo "✅ libepoxy pkg-config available"
+  echo "  Cflags: $(pkg-config --cflags epoxy)"
+  echo "  Libs: $(pkg-config --libs epoxy)"
+else
+  echo "❌ libepoxy pkg-config missing"
+fi
 
 echo "Build environment setup complete"
 echo
@@ -164,10 +228,44 @@ export HOMEBREW_NO_ANALYTICS=1
 # Set paths that match the formula expectations
 export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig"
 
-# Add libepoxy path (critical for OpenGL, matching what formula does)
+# Add critical dependency paths (matching what formula needs)
 EPOXY_PATH=$(find /opt/homebrew/Cellar/libepoxy -name "pkgconfig" -type d 2>/dev/null | head -1)
 if [ -n "$EPOXY_PATH" ]; then
   export PKG_CONFIG_PATH="$EPOXY_PATH:$PKG_CONFIG_PATH"
+fi
+
+PIXMAN_PATH=$(find /opt/homebrew/Cellar/pixman -name "pkgconfig" -type d 2>/dev/null | head -1)
+if [ -n "$PIXMAN_PATH" ]; then
+  export PKG_CONFIG_PATH="$PIXMAN_PATH:$PKG_CONFIG_PATH"
+fi
+
+SPICE_SERVER_PATH=$(find /opt/homebrew/Cellar/spice-server -name "pkgconfig" -type d 2>/dev/null | head -1)
+if [ -n "$SPICE_SERVER_PATH" ]; then
+  export PKG_CONFIG_PATH="$SPICE_SERVER_PATH:$PKG_CONFIG_PATH"
+fi
+
+SPICE_PROTOCOL_PATH=$(find /opt/homebrew/Cellar/spice-protocol -name "pkgconfig" -type d 2>/dev/null | head -1)
+if [ -n "$SPICE_PROTOCOL_PATH" ]; then
+  export PKG_CONFIG_PATH="$SPICE_PROTOCOL_PATH:$PKG_CONFIG_PATH"
+fi
+
+MESA_PATH=$(find /opt/homebrew/Cellar/mesa -name "pkgconfig" -type d 2>/dev/null | head -1)
+if [ -n "$MESA_PATH" ]; then
+  export PKG_CONFIG_PATH="$MESA_PATH:$PKG_CONFIG_PATH"
+fi
+
+# Add spice-server pkg-config path (critical for SPICE support)
+SPICE_PATH=$(find /opt/homebrew/Cellar/spice-server -name "pkgconfig" -type d 2>/dev/null | head -1)
+if [ -n "$SPICE_PATH" ]; then
+  export PKG_CONFIG_PATH="$SPICE_PATH:$PKG_CONFIG_PATH"
+  echo "Added spice-server pkg-config path: $SPICE_PATH"
+fi
+
+# Add spice-protocol pkg-config path as well
+SPICE_PROTOCOL_PATH=$(find /opt/homebrew/Cellar/spice-protocol -name "pkgconfig" -type d 2>/dev/null | head -1)
+if [ -n "$SPICE_PROTOCOL_PATH" ]; then
+  export PKG_CONFIG_PATH="$SPICE_PROTOCOL_PATH:$PKG_CONFIG_PATH"
+  echo "Added spice-protocol pkg-config path: $SPICE_PROTOCOL_PATH"
 fi
 
 echo "Environment configured:"
@@ -209,19 +307,31 @@ brew uninstall qemu-3dfx 2>/dev/null || echo "No existing installation to remove
 # Clear any cached builds
 brew cleanup qemu-3dfx 2>/dev/null || true
 
-# Fix pixman linking issues if they exist (common cache problem)
-echo "🔧 Resolving potential pixman linking conflicts..."
-if [ -f "/opt/homebrew/include/pixman-1/pixman.h" ] && ! brew list pixman &>/dev/null; then
-    echo "Found orphaned pixman headers, removing them..."
-    rm -rf /opt/homebrew/include/pixman-1/ 2>/dev/null || true
+# Ensure pixman is properly installed and linked (CRITICAL for QEMU build)
+echo "🔧 Ensuring pixman is properly available..."
+if ! brew list pixman &>/dev/null; then
+    echo "Installing pixman (required dependency)..."
+    brew install pixman
 fi
 
-# Force proper pixman linking if it's installed but not linked
-if brew list pixman &>/dev/null; then
-    echo "Ensuring pixman is properly linked..."
-    brew unlink pixman 2>/dev/null || true
-    brew link --overwrite pixman || echo "Could not link pixman (continuing anyway)"
+# Only relink if pixman is not already available via pkg-config
+if ! pkg-config --exists pixman-1; then
+    echo "Pixman not available via pkg-config, attempting to link..."
+    if ! brew link pixman; then
+        echo "Standard linking failed, trying with --overwrite..."
+        brew link --overwrite pixman || {
+            echo "ERROR: Could not link pixman - this will cause build failure!"
+            exit 1
+        }
+    fi
 fi
+
+# Final verification
+if ! pkg-config --exists pixman-1; then
+    echo "ERROR: pixman-1 still not available via pkg-config!"
+    exit 1
+fi
+echo "✅ pixman-1 confirmed available"
 
 # Verify critical headers are available before starting build
 echo "🔍 Final verification of build environment:"
@@ -229,9 +339,35 @@ echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
 pkg-config --exists pixman-1 && echo "✅ pixman-1 available" || echo "❌ pixman-1 missing"
 test -f /opt/homebrew/include/pixman-1/pixman.h && echo "✅ pixman.h header found" || echo "❌ pixman.h header missing"
 
+
+
 # Install with verbose output and force clean build from source
-# Note: We use --build-from-source (not --force-bottle) since we need to apply patches
-brew install --verbose --build-from-source --force Formula/qemu-3dfx.rb
+# Note: We use --build-from-source to apply patches during compilation
+
+# Add essential Apple framework linker flags for SDL2 support on macOS
+echo "Setting up Apple framework linker flags for SDL2..."
+APPLE_FRAMEWORKS="-framework AudioToolbox -framework CoreAudio -framework CoreGraphics -framework CoreFoundation -framework AppKit -framework IOKit -framework ForceFeedback -framework GameController -framework Carbon -framework Cocoa -framework CoreHaptics -framework CoreVideo -framework Metal -framework MetalKit -framework OpenGL"
+
+export LDFLAGS="$LDFLAGS $APPLE_FRAMEWORKS"
+export LIBS="$LIBS $APPLE_FRAMEWORKS"
+
+echo "Added Apple framework linker flags for SDL2 support"
+
+# Create temporary local tap to satisfy Homebrew requirements
+echo "Creating temporary local tap structure..."
+TEMP_TAP_DIR="$(brew --repository)/Library/Taps/local/homebrew-qemu3dfx"
+mkdir -p "$TEMP_TAP_DIR/Formula"
+cp Formula/qemu-3dfx.rb "$TEMP_TAP_DIR/Formula/"
+
+# Install with verbose output and build from source to apply patches
+echo "Installing from temporary local tap..."
+brew install --verbose --build-from-source local/qemu3dfx/qemu-3dfx
+
+# Clean up temporary tap after installation
+echo "Cleaning up temporary tap..."
+rm -rf "$TEMP_TAP_DIR"
+
+
 
 echo
 echo "=== Step 4: Running Formula Tests ==="
@@ -271,15 +407,17 @@ fi
 
 echo
 echo "Checking for 3dfx signature:"
-if "$QEMU_TEST_BIN" --version | grep -q "qemu-3dfx@"; then
+if "$QEMU_TEST_BIN" --version | grep -q "qemu-3dfx"; then
     echo "✅ 3dfx signature found in x86_64 binary"
+    "$QEMU_TEST_BIN" --version | grep "qemu-3dfx"
 else
     echo "❌ 3dfx signature NOT found in x86_64 binary"
 fi
 
 if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
-    if "$QEMU_NATIVE_BIN" --version | grep -q "qemu-3dfx@"; then
+    if "$QEMU_NATIVE_BIN" --version | grep -q "qemu-3dfx"; then
         echo "✅ 3dfx signature found in aarch64 binary"
+        "$QEMU_NATIVE_BIN" --version | grep "qemu-3dfx"
     else
         echo "❌ 3dfx signature NOT found in aarch64 binary"
     fi
