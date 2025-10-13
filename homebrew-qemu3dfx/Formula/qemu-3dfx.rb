@@ -51,10 +51,10 @@ class Qemu3dfx < Formula
 
   # Note: XQuartz needed for X11 and OpenGL support - install with: brew install --cask xquartz
 
-  # Virglrenderer resource - use version 1.1.1 (last version before PyYAML requirement)
+  # Virglrenderer resource - updated to version 1.2.0 (matching upstream)
   resource "virglrenderer" do
-    url "https://gitlab.freedesktop.org/virgl/virglrenderer/-/archive/virglrenderer-1.1.1/virglrenderer-virglrenderer-1.1.1.tar.gz"
-    sha256 "d7c30699f8dcd4b2fef17332fd5c2ae64fdae8585f64f14363a94799a34e74f4"
+    url "https://gitlab.freedesktop.org/virgl/virglrenderer/-/archive/virglrenderer-1.2.0/virglrenderer-virglrenderer-1.2.0.tar.gz"
+    sha256 "b181b668afae817953c84635fac2dc4c2e5786c710b7d225ae215d15674a15c7"
   end
 
   def install
@@ -70,7 +70,7 @@ class Qemu3dfx < Formula
 
     # Build virglrenderer first with macOS patches
     resource("virglrenderer").stage do
-      # virglrenderer 1.1.1 needs PyYAML for u_format_table generation
+      # virglrenderer 1.2.0 needs PyYAML for u_format_table generation
       # Use Python 3.13 for better compatibility (3.14 is too new)
       python_bin = Formula["python@3.13"].opt_bin/"python3.13"
       
@@ -114,17 +114,17 @@ class Qemu3dfx < Formula
         patch_content = File.read(macos_virgl_patch)
         
         # Convert from diff -Nru format to git diff format
-        # Replace "diff -Nru orig/virglrenderer-1.1.1/path src/virglrenderer-1.1.1/path"
+        # Replace "diff -Nru orig/virglrenderer-1.2.0/path src/virglrenderer-1.2.0/path"
         # with "diff --git a/path b/path"
         fixed_content = patch_content.gsub(/^diff -Nru orig\/virglrenderer-[\d.]+\/(.+?) src\/virglrenderer-[\d.]+\/(.+?)$/m) do |match|
           file_path = $1
           "diff --git a/#{file_path} b/#{file_path}"
         end
         
-        # Replace "--- orig/virglrenderer-1.1.1/path" with "--- a/path"
+        # Replace "--- orig/virglrenderer-1.2.0/path" with "--- a/path"
         fixed_content = fixed_content.gsub(/^--- orig\/virglrenderer-[\d.]+\/(.+)$/m, "--- a/\\1")
         
-        # Replace "+++ src/virglrenderer-1.1.1/path" with "+++ b/path"
+        # Replace "+++ src/virglrenderer-1.2.0/path" with "+++ b/path"
         fixed_content = fixed_content.gsub(/^\+\+\+ src\/virglrenderer-[\d.]+\/(.+)$/m, "+++ b/\\1")
         
         # CRITICAL FIX: Remove any remaining virglrenderer-x.x.x/ prefixes from file paths
@@ -282,6 +282,9 @@ class Qemu3dfx < Formula
       
       system "ninja", "install"
     end
+
+    # Build Glide shared libraries for guest OS use
+    build_glide_libraries
 
     # Copy 3dfx wrapper sources for manual building
     copy_3dfx_wrapper_sources
@@ -492,6 +495,57 @@ class Qemu3dfx < Formula
       # Apply patch directly if no fixing needed
       system "git", "apply", patch_file
     end
+  end
+
+  def build_glide_libraries
+    # Build Glide shared libraries for guest OS applications
+    # These libraries are loaded by DOS/Windows games to communicate with QEMU's 3dfx emulation
+    
+    repo_root = find_repo_root(__dir__)
+    return unless repo_root
+    
+    dso_dir = "#{repo_root}/wrappers/3dfx/dso"
+    return unless Dir.exist?(dso_dir)
+
+    ohai "Building Glide shared libraries for guest OS use..."
+    
+    # Set up compiler flags for macOS dylib building
+    commit_id = `cd #{repo_root} && git rev-parse --short HEAD`.strip
+    
+    cflags = [
+      "-I#{buildpath}/hw/3dfx",
+      "-I#{dso_dir}/../src", 
+      "-D__REV__=\"#{commit_id}\"",
+      "-Wall",
+      "-O3",
+      "-fomit-frame-pointer",
+      "-fPIC"
+    ]
+    
+    ldflags = [
+      "-shared",
+      "-Wl,-undefined,dynamic_lookup"  # Allow undefined symbols for dylib
+    ]
+    
+    # Build libglide2x.dylib (Glide 2.x API)
+    ohai "Building libglide2x.dylib"
+    system "#{ENV.cc}", *cflags, "-DGLIDE_VERSION=2", 
+           "#{dso_dir}/glidedso.c", *ldflags,
+           "-o", "#{lib}/libglide2x.dylib"
+    
+    # Build libglide3x.dylib (Glide 3.x API) 
+    ohai "Building libglide3x.dylib"
+    system "#{ENV.cc}", *cflags, "-DGLIDE_VERSION=3",
+           "#{dso_dir}/glidedso.c", *ldflags,
+           "-o", "#{lib}/libglide3x.dylib"
+           
+    # Create version symlinks for compatibility
+    ln_sf "libglide2x.dylib", "#{lib}/libglide2x.2.dylib"
+    ln_sf "libglide3x.dylib", "#{lib}/libglide3x.3.dylib"
+    
+    ohai "Glide libraries built successfully:"
+    ohai "  - #{lib}/libglide2x.dylib (for guest Glide 2.x applications)"
+    ohai "  - #{lib}/libglide3x.dylib (for guest Glide 3.x applications)"
   end
 
   def copy_3dfx_wrapper_sources
