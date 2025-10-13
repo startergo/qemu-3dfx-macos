@@ -54,7 +54,7 @@ jobs:
             runner: macos-latest  # ARM64 (Apple Silicon)
             runner_arch: arm64
           - arch: x86_64
-            runner: macos-13      # Intel x86_64
+            runner: macos-15-intel      # Intel x86_64
             runner_arch: x86_64
     
     steps:
