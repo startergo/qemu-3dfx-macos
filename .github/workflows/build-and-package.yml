@@ -127,7 +127,9 @@ jobs:
         
         # Set experimental patch flag based on input
         WORKFLOW_INPUT="${{ github.event.inputs.apply_experimental }}"
-        case "${WORKFLOW_INPUT,,}" in
+        # Convert to lowercase using tr for compatibility
+        WORKFLOW_INPUT_LOWER=$(echo "${WORKFLOW_INPUT}" | tr '[:upper:]' '[:lower:]')
+        case "${WORKFLOW_INPUT_LOWER}" in
           "true"|"1"|"yes"|"on")
             export QEMU_3DFX_EXPERIMENTAL_PATCHES="true"
             echo "✅ Experimental patches ENABLED"
