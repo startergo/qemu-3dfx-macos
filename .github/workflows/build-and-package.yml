@@ -150,6 +150,9 @@ jobs:
         # Install KJ's gaming essentials (for DOSBox SVN Games)
         brew install sdl12-compat sdl2_net sdl2_sound mt32emu
         
+        # Install SPICE dependencies (missing from original list)
+        brew install spice-protocol spice-server
+        
         # Additional build tools needed for compilation
         brew install git wget cmake ninja meson pkg-config pixman libffi python@3.12
         
@@ -269,14 +272,17 @@ jobs:
         echo "Installing QEMU 3dfx via Homebrew formula..."
         cd homebrew-qemu3dfx
         
-        # Check SPICE dependencies before building
-        echo "=== Checking SPICE dependencies ==="
-        brew list spice-protocol || echo "⚠️ spice-protocol not installed"
-        brew list spice-server || echo "⚠️ spice-server not installed"
-        
-        # Show pkg-config availability for SPICE
-        pkg-config --exists spice-protocol && echo "✅ spice-protocol pkg-config found" || echo "⚠️ spice-protocol pkg-config missing"
-        pkg-config --exists spice-server && echo "✅ spice-server pkg-config found" || echo "⚠️ spice-server pkg-config missing"
+        # Verify all dependencies are installed
+        echo "=== Verifying all dependencies ==="
+        for dep in spice-protocol spice-server; do
+          if brew list "$dep" &>/dev/null; then
+            echo "✅ $dep installed"
+            pkg-config --exists "$dep" && echo "  ✅ pkg-config available" || echo "  ❌ pkg-config missing"
+          else
+            echo "❌ $dep missing"
+            exit 1
+          fi
+        done
         
         # Build with Homebrew formula (APPLY_EXPERIMENTAL_PATCHES is now exported in current shell)
         echo "Running brew install with environment variable APPLY_EXPERIMENTAL_PATCHES=${APPLY_EXPERIMENTAL_PATCHES}..."
@@ -290,8 +296,15 @@ jobs:
           echo "📝 Created flag file: /tmp/apply_experimental_patches with value 'false'"
         fi
 
-        # Install with build from source
-        brew install --build-from-source ./Formula/qemu-3dfx.rb
+        # Create local tap directory
+        TAP_DIR="$(brew --repository)/Library/Taps/startergo/homebrew-qemu3dfx"
+        mkdir -p "$TAP_DIR/Formula"
+        
+        # Copy formula to tap
+        cp Formula/qemu-3dfx.rb "$TAP_DIR/Formula/"
+        
+        # Install from tap
+        brew install startergo/qemu3dfx/qemu-3dfx
 
         # Verify installation
         echo "Verifying QEMU 3dfx installation..."
