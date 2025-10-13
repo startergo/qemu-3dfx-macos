@@ -34,10 +34,15 @@
 #include <GL/wgl.h>
 #include "system/whpx.h"
 
-int MGLUpdateGuestBufo(mapbufo_t *bufo, int add)
+static int bufo_accel_en(void)
+{
+    return 1;
+}
+int MGLUpdateGuestBufo(mapbufo_t *bufo, const int add)
 {
     int ret = (GetBufOAccelEN()
-            || (bufo && bufo->tgt == GL_PIXEL_UNPACK_BUFFER)
+            || (bufo_accel_en() &&
+                (bufo && bufo->tgt == GL_PIXEL_UNPACK_BUFFER))
             )? whpx_enabled():0;
 
     if (ret && bufo) {
@@ -303,6 +308,7 @@ void MGLWndRelease(void)
         ReleaseDC(hwnd, hDC);
         TmpContextPurge();
         GLWINDOW_FINI();
+        CompareAttribArray(NULL);
         hRC[0] = 0;
         hDC = 0;
         hwnd = 0;
@@ -495,6 +501,7 @@ static int LookupAttribArray(const int *attrib, const int attr)
     }
     return ret;
 }
+
 void MGLFuncHandler(const char *name)
 {
     char fname[64];
@@ -751,7 +758,11 @@ int CompareAttribArray(const int *attrib)
     } s;
 
     int i;
-    for (i = 0; attrib[i]; i+=2)
+    if (!attrib) {
+        s.len = 0;
+        return 0;
+    }
+    for (i = 0; attrib[i]; i+=2);
     if (i && (s.len == (i * sizeof(int))) && !memcmp(s.array, attrib, s.len))
         return 0;
     s.len = i * sizeof(int);
@@ -766,7 +777,7 @@ void MGLActivateHandler(const int i, const int d)
 
     if (i != last) {
         last = i;
-        DPRINTF_COND(GLFuncTrace(), "wm_activate %-32d", i);
+        DPRINTF_COND(GLFuncTrace(), "wm_activate %s%-32d", (d)? "dfr ":"imm ", i);
         if (i) {
             deactivateGuiRefSched();
             mesa_renderer_stat(i);
@@ -797,6 +808,8 @@ void MGLMouseWarp(const uint32_t ci)
 static QEMUTimer *ts;
 static void deactivateOnce(void)
 {
+    if (!GetContextZERO())
+        CompareAttribArray(NULL);
     MGLMouseWarp(0);
     mesa_renderer_stat(0);
 }
