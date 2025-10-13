@@ -30,7 +30,7 @@ fi
 
 echo "=== Step 1: Validating Formula Syntax ==="
 cd "$FORMULA_DIR"
-brew audit --strict --online Formula/qemu-3dfx.rb || echo "Warning: Audit found issues (continuing anyway)"
+echo "Skipping brew audit (requires tap) - will validate during install"
 echo
 
 echo "=== Step 2: Installing Dependencies (Replicating Workflow) ==="
@@ -83,10 +83,15 @@ brew install git wget cmake ninja meson pkg-config pixman libffi python@3.12
 echo "Installing additional dependencies..."
 brew install sdl2_image spice-protocol spice-server
 
+# Ensure libepoxy is properly installed and linked (critical for OpenGL)
+echo "Ensuring libepoxy is properly installed and linked..."
+brew install libepoxy
+brew link --overwrite libepoxy || echo "Could not link libepoxy (continuing anyway)"
+
 # Install Python modules required for virglrenderer build
 echo "Installing Python modules..."
-python3 -m pip install --break-system-packages PyYAML || true
-/opt/homebrew/bin/python3.12 -m pip install --break-system-packages PyYAML || true
+python3 -m pip install --break-system-packages PyYAML distlib || true
+/opt/homebrew/bin/python3.12 -m pip install --break-system-packages PyYAML distlib || true
 
 # Verify PyYAML is available for the Python version meson will use
 echo "Checking PyYAML availability:"
@@ -203,10 +208,6 @@ brew uninstall qemu-3dfx 2>/dev/null || echo "No existing installation to remove
 
 # Clear any cached builds
 brew cleanup qemu-3dfx 2>/dev/null || true
-
-# Force Homebrew to re-evaluate all dependencies
-echo "🔄 Forcing Homebrew to re-evaluate dependencies..."
-brew deps --tree Formula/qemu-3dfx.rb
 
 # Fix pixman linking issues if they exist (common cache problem)
 echo "🔧 Resolving potential pixman linking conflicts..."
