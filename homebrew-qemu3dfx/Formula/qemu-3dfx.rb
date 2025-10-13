@@ -710,6 +710,10 @@ class Qemu3dfx < Formula
     
     # If not found by walking up, try common locations where the repo might be
     potential_locations = [
+      # GitHub Actions workspace (highest priority)
+      ENV["GITHUB_WORKSPACE"],
+      File.join(ENV["RUNNER_WORKSPACE"] || "", "qemu-3dfx-macos") if ENV["RUNNER_WORKSPACE"],
+      "/Users/#{ENV["USER"]}/work/qemu-3dfx-macos/qemu-3dfx-macos",  # GitHub Actions path
       # When running from Homebrew tap, look for the original repo
       ENV["HOMEBREW_CACHE"],
       "/tmp",
@@ -723,14 +727,20 @@ class Qemu3dfx < Formula
     ].compact
     
     potential_locations.each do |base_dir|
-      next unless Dir.exist?(base_dir)
+      next unless base_dir && Dir.exist?(base_dir)
+      
+      # First check if the base directory itself is the repository root
+      if key_files.all? { |file| File.exist?(File.join(base_dir, file)) }
+        ohai "Repository root found at location: #{base_dir}"
+        return base_dir
+      end
       
       # Look for qemu-3dfx directories in this location
       Dir.glob("#{base_dir}/*qemu-3dfx*").each do |candidate|
         next unless File.directory?(candidate)
         
         if key_files.all? { |file| File.exist?(File.join(candidate, file)) }
-          ohai "Repository root found in common location: #{candidate}"
+          ohai "Repository root found in subdirectory: #{candidate}"
           return candidate
         end
       end
