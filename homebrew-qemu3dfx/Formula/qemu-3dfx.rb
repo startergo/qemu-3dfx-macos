@@ -712,7 +712,7 @@ class Qemu3dfx < Formula
     potential_locations = [
       # GitHub Actions workspace (highest priority)
       ENV["GITHUB_WORKSPACE"],
-      File.join(ENV["RUNNER_WORKSPACE"] || "", "qemu-3dfx-macos") if ENV["RUNNER_WORKSPACE"],
+      ENV["RUNNER_WORKSPACE"] ? File.join(ENV["RUNNER_WORKSPACE"], "qemu-3dfx-macos") : nil,
       "/Users/#{ENV["USER"]}/work/qemu-3dfx-macos/qemu-3dfx-macos",  # GitHub Actions path
       # When running from Homebrew tap, look for the original repo
       ENV["HOMEBREW_CACHE"],

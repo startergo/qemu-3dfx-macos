@@ -105,8 +105,7 @@ echo "Ensuring critical dependencies are properly linked..."
 # Ensure libepoxy is properly linked (no rebuild needed - bottle works fine)
 brew link libepoxy || echo "Could not link libepoxy (continuing anyway)"
 
-# Ensure Mesa OpenGL is linked (critical for OpenGL support)
-brew link mesa || echo "Could not link mesa (continuing anyway)"
+# Note: Mesa not needed as separate package - macOS uses native OpenGL framework
 
 # Ensure SPICE dependencies are linked (required for SPICE support)
 brew link spice-protocol || echo "Could not link spice-protocol (continuing anyway)"
@@ -249,10 +248,7 @@ if [ -n "$SPICE_PROTOCOL_PATH" ]; then
   export PKG_CONFIG_PATH="$SPICE_PROTOCOL_PATH:$PKG_CONFIG_PATH"
 fi
 
-MESA_PATH=$(find /opt/homebrew/Cellar/mesa -name "pkgconfig" -type d 2>/dev/null | head -1)
-if [ -n "$MESA_PATH" ]; then
-  export PKG_CONFIG_PATH="$MESA_PATH:$PKG_CONFIG_PATH"
-fi
+# Note: Mesa GL not needed as separate package - macOS uses native OpenGL framework via libepoxy
 
 # Add spice-server pkg-config path (critical for SPICE support)
 SPICE_PATH=$(find /opt/homebrew/Cellar/spice-server -name "pkgconfig" -type d 2>/dev/null | head -1)
