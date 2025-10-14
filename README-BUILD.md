@@ -1,20 +1,6 @@
 # QEMU 3dfx/Virgl3D for macOS
 
-This repository con```bash
-# Sign the binary (removes security warnings and enables proper execution)
-cd $(brew --prefix qemu-3dfx)/sign
-export QEMU_3DFX_COMMIT=$(cd ~/qemu-3dfx-macos && git rev-parse HEAD | cut -c1-7)
-sudo /usr/bin/xattr -c ../bin/qemu-system-* ../bin/qemu-* ../lib/*.dylib
-sudo -E bash ./qemu.sign
-
-# The script will:
-# 1. Get the actual git commit hash from source repository
-# 2. Clear extended attributes that can interfere with signing  
-# 3. Create a self-signed certificate if needed
-# 4. Sign all QEMU binaries and Glide libraries with matching identity
-# 5. Add proper entitlements and icons (cleanly)
-# 6. Verify signatures
-``` patches packaged as a Homebrew formula to easily install QEMU 10.0.0 with 3dfx Voodoo emulation and Virgl3D OpenGL acceleration support on macOS.
+This repository contains patches packaged as a Homebrew formula to easily install QEMU 10.0.0 with 3dfx Voodoo emulation and Virgl3D OpenGL acceleration support on macOS.
 
 ## Features
 

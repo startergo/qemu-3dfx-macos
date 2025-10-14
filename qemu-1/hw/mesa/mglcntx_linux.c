@@ -221,9 +221,10 @@ static int syncFBConfigToPFD(Display *dpy, const GLXFBConfig *fbc, const int nEl
     for (int i = 0; i < nElem; i++) {
         glXGetFBConfigAttrib(dpy, fbc[i], GLX_BUFFER_SIZE, &colorBits);
         XVisualInfo *vinfo = glXGetVisualFromFBConfig(dpy, fbc[i]);
-        if (vinfo->depth == colorBits)
+        if (vinfo && vinfo->depth == colorBits)
             ret = i;
-        XFree(vinfo);
+        if (vinfo)
+            XFree(vinfo);
         if (ret)
             break;
     }
@@ -676,7 +677,7 @@ void MGLFuncHandler(const char *name)
     }
     FUNCP_HANDLER("wglGetSwapIntervalEXT") {
         if (!xglFuncs.SwapIntervalEXT && xglFuncs.has_mesa_exts) {
-            uint32_t ret;
+            uint32_t ret = 0;  // Initialize to avoid undefined behavior
             int (*GetSwapIntervalMESA)(void) =
                 (int (*)(void)) MesaGLGetProc("glXGetSwapIntervalMESA");
             if (GetSwapIntervalMESA) {
