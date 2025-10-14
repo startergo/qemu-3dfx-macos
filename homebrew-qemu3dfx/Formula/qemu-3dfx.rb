@@ -527,25 +527,29 @@ class Qemu3dfx < Formula
       "-Wl,-undefined,dynamic_lookup"  # Allow undefined symbols for dylib
     ]
     
-    # Build libglide2x.dylib (Glide 2.x API)
-    ohai "Building libglide2x.dylib"
+    # Build libglide2x.0.dylib (Glide 2.x API) - main versioned library
+    ohai "Building libglide2x.0.dylib"
     system "#{ENV.cc}", *cflags, "-DGLIDE_VERSION=2", 
            "#{dso_dir}/glidedso.c", *ldflags,
-           "-o", "#{lib}/libglide2x.dylib"
+           "-o", "#{lib}/libglide2x.0.dylib"
     
-    # Build libglide3x.dylib (Glide 3.x API) 
-    ohai "Building libglide3x.dylib"
+    # Build libglide3x.0.dylib (Glide 3.x API) - main versioned library
+    ohai "Building libglide3x.0.dylib"
     system "#{ENV.cc}", *cflags, "-DGLIDE_VERSION=3",
            "#{dso_dir}/glidedso.c", *ldflags,
-           "-o", "#{lib}/libglide3x.dylib"
+           "-o", "#{lib}/libglide3x.0.dylib"
            
-    # Create version symlinks for compatibility
-    ln_sf "libglide2x.dylib", "#{lib}/libglide2x.2.dylib"
-    ln_sf "libglide3x.dylib", "#{lib}/libglide3x.3.dylib"
+    # Create symlinks for compatibility (unversioned names point to versioned libraries)
+    ln_sf "libglide2x.0.dylib", "#{lib}/libglide2x.dylib"
+    ln_sf "libglide2x.0.dylib", "#{lib}/libglide2x.2.dylib"
+    ln_sf "libglide3x.0.dylib", "#{lib}/libglide3x.dylib"
+    ln_sf "libglide3x.0.dylib", "#{lib}/libglide3x.3.dylib"
     
     ohai "Glide libraries built successfully:"
-    ohai "  - #{lib}/libglide2x.dylib (for guest Glide 2.x applications)"
-    ohai "  - #{lib}/libglide3x.dylib (for guest Glide 3.x applications)"
+    ohai "  - #{lib}/libglide2x.0.dylib (main Glide 2.x library)"
+    ohai "  - #{lib}/libglide3x.0.dylib (main Glide 3.x library)"
+    ohai "  - #{lib}/libglide2x.dylib (unversioned symlink)"
+    ohai "  - #{lib}/libglide3x.dylib (unversioned symlink)"
   end
 
   def copy_3dfx_wrapper_sources
