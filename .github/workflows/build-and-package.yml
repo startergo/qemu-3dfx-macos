@@ -98,7 +98,7 @@ jobs:
         
         echo "COMMIT_SHORT=${COMMIT_SHORT}" >> $GITHUB_ENV
         echo "COMMIT_FULL=${COMMIT_FULL}" >> $GITHUB_ENV
-        echo "BUILD_IDENTIFIER=qemu-3dfx-macos@${COMMIT_SHORT}" >> $GITHUB_ENV
+        echo "BUILD_IDENTIFIER=qemu-3dfx@${COMMIT_SHORT}" >> $GITHUB_ENV
         
         # Show commit information
         echo "=== Commit Information ==="
@@ -308,7 +308,7 @@ jobs:
         # Update signing script with current commit and embed the commit ID
         if [ -f "${STAGE_DIR}/opt/homebrew/sign/qemu.sign" ]; then
           # Update the hardcoded repository name pattern
-          sed -i '' "s/qemu-3dfx-macos@[a-f0-9]*/qemu-3dfx-macos@${COMMIT_SHORT}/g" "${STAGE_DIR}/opt/homebrew/sign/qemu.sign"
+          sed -i '' "s/qemu-3dfx@[a-f0-9]*/qemu-3dfx@${COMMIT_SHORT}/g" "${STAGE_DIR}/opt/homebrew/sign/qemu.sign"
           
           # Embed the actual commit ID into the script so it doesn't need git or env vars
           sed -i '' "s/GIT_HASH=\"2ed207b\"/GIT_HASH=\"${COMMIT_SHORT}\"/" "${STAGE_DIR}/opt/homebrew/sign/qemu.sign"
