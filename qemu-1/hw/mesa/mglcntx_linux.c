@@ -227,7 +227,7 @@ static int syncFBConfigToPFD(Display *dpy, const GLXFBConfig *fbc, const int nEl
             }
             XFree(vinfo);
         }
-        if (ret >= 0)  // Break when valid index found
+        if (ret >= 0)  // Break when first valid index found
             break;
     }
     return ret >= 0 ? ret : 0;  // Return valid index or 0 as fallback
