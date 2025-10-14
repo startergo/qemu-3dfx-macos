@@ -197,7 +197,7 @@ curl -X POST \
 - `HOMEBREW_NO_AUTO_UPDATE`: Prevents Homebrew updates during builds
 - `HOMEBREW_NO_INSTALL_CLEANUP`: Speeds up dependency installation
 - `COMMIT_SHORT`: 7-character commit hash for versioning
-- `BUILD_IDENTIFIER`: Used for code signing (e.g., `qemu-3dfx-macos@abc1234`)
+- `BUILD_IDENTIFIER`: Used for code signing (e.g., `qemu-3dfx@abc1234`)
 
 ### Platform Support
 

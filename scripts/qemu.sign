@@ -61,7 +61,7 @@ if [ -z "$GIT_HASH" ]; then
     echo "Warning: Git repository not found, using fallback hash: $GIT_HASH"
 fi
 
-IDEN="qemu-3dfx-macos@${GIT_HASH}"
+IDEN="qemu-3dfx@${GIT_HASH}"
 echo "Identity: $IDEN"
 
 QEMU_ICO=../sign/qemu.rsrc

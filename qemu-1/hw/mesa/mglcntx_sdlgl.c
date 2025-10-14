@@ -31,6 +31,24 @@
 
 #if defined(CONFIG_LINUX) || defined(CONFIG_DARWIN)
 #define MESAGL_SDLGL 1
+#define GL_CONTEXT_VALID() \
+    do { \
+        if (!ctx[0]) { \
+            ctx[0] = SDL_GL_GetCurrentContext(); \
+            if (!ctx[0]) { \
+                ctx[0] = SDL_GL_CreateContext(window); \
+                self_ctx = (ctx[0])? 1:0; \
+            } \
+        } \
+        if (!ctx[0]) \
+            fprintf(stderr, "%s:%d %s\n", __FILE__, __LINE__, SDL_GetError()); \
+        else { \
+            if (SDL_GL_MakeCurrent(window, ctx[0])) { \
+                fprintf(stderr, "%s:%d %s\n", __FILE__, __LINE__, SDL_GetError()); \
+                return 0; \
+            } \
+        } \
+    } while(0);
 #ifdef CONFIG_DARWIN
 const char dllname[] = "/System/Library/Frameworks/OpenGL.framework/Libraries/libGL.dylib";
 int MGLUpdateGuestBufo(mapbufo_t *bufo, int add) { return 0; }
@@ -53,14 +71,27 @@ int MGLUpdateGuestBufo(mapbufo_t *bufo, int add) { return 0; }
 #ifdef CONFIG_LINUX
 #include <GL/glx.h>
 #include <linux/version.h>
+#include <sys/utsname.h>
 #include "system/kvm.h"
 
-int MGLUpdateGuestBufo(mapbufo_t *bufo, int add)
+static int bufo_accel_en(void)
+{
+    struct utsname buf;
+
+    if (!uname(&buf)) {
+        int major, patch, sub, i = sscanf(buf.release, "%d.%d.%d", &major, &patch, &sub);
+        if (i == 3) {
+            return (KERNEL_VERSION(major, patch, sub) >=
+                    KERNEL_VERSION(6, 13, 0))? 1:0;
+        }
+    }
+    return 0;
+}
+int MGLUpdateGuestBufo(mapbufo_t *bufo, const int add)
 {
     int ret = (GetBufOAccelEN()
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
-            || (bufo && bufo->tgt == GL_PIXEL_UNPACK_BUFFER)
-#endif
+            || (bufo_accel_en() &&
+                (bufo && bufo->tgt == GL_PIXEL_UNPACK_BUFFER))
             )? kvm_enabled():0;
 
     if (ret && bufo) {
@@ -384,6 +415,7 @@ void MGLWndRelease(void)
         }
         MesaInitGammaRamp();
         mesa_release_window();
+        CompareAttribArray(NULL);
         self_ctx = 0;
         ctx[0] = 0;
         window = 0;
@@ -464,36 +496,21 @@ int MGLSetPixelFormat(int fmt, const void *p)
     if (!window)
         MGLPresetPixelFormat();
     else {
-        self_ctx = 0;
-        if (!ctx[0]) {
-            ctx[0] = SDL_GL_GetCurrentContext();
-            if (!ctx[0]) {
-                ctx[0] = SDL_GL_CreateContext(window);
-                self_ctx = (ctx[0])? 1:0;
-            }
-        }
-        if (!ctx[0])
-            fprintf(stderr, "%s:%d %s\n", __FILE__, __LINE__, SDL_GetError());
-        else {
-            int cColors[3];
-            if (SDL_GL_MakeCurrent(window, ctx[0])) {
-                fprintf(stderr, "%s:%d %s\n", __FILE__, __LINE__, SDL_GetError());
-                return 0;
-            }
-            SDL_GL_GetAttribute(SDL_GL_ALPHA_SIZE, &cAlphaBits);
-            SDL_GL_GetAttribute(SDL_GL_BLUE_SIZE, &cColors[0]);
-            SDL_GL_GetAttribute(SDL_GL_GREEN_SIZE, &cColors[1]);
-            SDL_GL_GetAttribute(SDL_GL_RED_SIZE, &cColors[2]);
-            SDL_GL_GetAttribute(SDL_GL_DEPTH_SIZE, &cDepthBits);
-            SDL_GL_GetAttribute(SDL_GL_STENCIL_SIZE, &cStencilBits);
-            SDL_GL_GetAttribute(SDL_GL_MULTISAMPLEBUFFERS, &cSampleBuf[0]);
-            SDL_GL_GetAttribute(SDL_GL_MULTISAMPLESAMPLES, &cSampleBuf[1]);
-            glGetIntegerv(GL_AUX_BUFFERS, &cAuxBuffers);
-            DPRINTF("%s OpenGL %s", glGetString(GL_RENDERER), glGetString(GL_VERSION));
-            DPRINTF("Pixel Format ABGR%d%d%d%d D%2dS%d nAux %d nSamples %d %d %s",
-                    cAlphaBits, cColors[0], cColors[1], cColors[2], cDepthBits, cStencilBits,
-                    cAuxBuffers, cSampleBuf[0], cSampleBuf[1], ContextUseSRGB()? "sRGB":"");
-        }
+        GL_CONTEXT_VALID();
+        int cColors[3];
+        SDL_GL_GetAttribute(SDL_GL_ALPHA_SIZE, &cAlphaBits);
+        SDL_GL_GetAttribute(SDL_GL_BLUE_SIZE, &cColors[0]);
+        SDL_GL_GetAttribute(SDL_GL_GREEN_SIZE, &cColors[1]);
+        SDL_GL_GetAttribute(SDL_GL_RED_SIZE, &cColors[2]);
+        SDL_GL_GetAttribute(SDL_GL_DEPTH_SIZE, &cDepthBits);
+        SDL_GL_GetAttribute(SDL_GL_STENCIL_SIZE, &cStencilBits);
+        SDL_GL_GetAttribute(SDL_GL_MULTISAMPLEBUFFERS, &cSampleBuf[0]);
+        SDL_GL_GetAttribute(SDL_GL_MULTISAMPLESAMPLES, &cSampleBuf[1]);
+        glGetIntegerv(GL_AUX_BUFFERS, &cAuxBuffers);
+        DPRINTF("%s OpenGL %s", glGetString(GL_RENDERER), glGetString(GL_VERSION));
+        DPRINTF("Pixel Format ABGR%d%d%d%d D%2dS%d nAux %d nSamples %d %d %s",
+                cAlphaBits, cColors[0], cColors[1], cColors[2], cDepthBits, cStencilBits,
+                cAuxBuffers, cSampleBuf[0], cSampleBuf[1], ContextUseSRGB()? "sRGB":"");
     }
     return (ctx[0])? 1:0;
 }
@@ -507,25 +524,10 @@ int MGLDescribePixelFormat(int fmt, unsigned int sz, void *p)
     if (!window)
         MGLPresetPixelFormat();
     else {
-        self_ctx = 0;
-        if (!ctx[0]) {
-            ctx[0] = SDL_GL_GetCurrentContext();
-            if (!ctx[0]) {
-                ctx[0] = SDL_GL_CreateContext(window);
-                self_ctx = (ctx[0])? 1:0;
-            }
-        }
-        if (!ctx[0])
-            fprintf(stderr, "%s:%d %s\n", __FILE__, __LINE__, SDL_GetError());
-        else {
-            if (SDL_GL_MakeCurrent(window, ctx[0])) {
-                fprintf(stderr, "%s:%d %s\n", __FILE__, __LINE__, SDL_GetError());
-                return 0;
-            }
-            SDL_GL_GetAttribute(SDL_GL_DEPTH_SIZE, &cDepthBits);
-            SDL_GL_GetAttribute(SDL_GL_STENCIL_SIZE, &cStencilBits);
-            glGetIntegerv(GL_AUX_BUFFERS, &cAuxBuffers);
-        }
+        GL_CONTEXT_VALID();
+        SDL_GL_GetAttribute(SDL_GL_DEPTH_SIZE, &cDepthBits);
+        SDL_GL_GetAttribute(SDL_GL_STENCIL_SIZE, &cStencilBits);
+        glGetIntegerv(GL_AUX_BUFFERS, &cAuxBuffers);
     }
     memcpy(p, &pfd, sizeof(PIXELFORMATDESCRIPTOR));
     ((PIXELFORMATDESCRIPTOR *)p)->cDepthBits = cDepthBits;

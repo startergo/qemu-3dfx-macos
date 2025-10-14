@@ -67,65 +67,12 @@ if [ ! -d "/opt/X11/lib" ] || [ -z "$(ls -A /opt/X11/lib 2>/dev/null)" ]; then
   fi
 fi
 
-# Install KJ's specified core prerequisites
-echo "Installing KJ's core prerequisites..."
-brew install capstone glib gettext gnutls libepoxy libgcrypt libslirp libusb jpeg-turbo lz4 opus sdl2 zstd
+# Install only dependencies not handled by the formula
+echo "Installing additional tools not in formula dependencies..."
+brew install git wget
 
-# Install KJ's gaming essentials (for DOSBox SVN Games)
-echo "Installing gaming essentials..."
-brew install sdl12-compat sdl2_net sdl2_sound mt32emu
-
-# Additional build tools needed for compilation
-echo "Installing build tools..."
-brew install git wget cmake ninja meson pkg-config pixman libffi python@3.13
-
-# Install additional dependencies that might be missing
-echo "Installing additional dependencies..."
-brew install sdl2_image spice-protocol spice-server
-
-# X11 headers setup - COMMENTED OUT (handled internally by Homebrew formula)
-# macOS uses SDL-based Mesa GL implementation which uses native OpenGL framework instead of X11/GLX
-# echo "Setting up X11 headers for OpenGL support..."
-# sudo mkdir -p /usr/local/include/X11/extensions
-# if [ -d "/opt/homebrew/include/X11" ]; then
-#   echo "Setting up X11 headers from Homebrew"
-#   sudo cp -rf /opt/homebrew/include/X11/* /usr/local/include/X11/ 2>/dev/null || true
-# fi
-# if [ ! -f "/usr/local/include/X11/extensions/xf86vmode.h" ] && [ -f "/opt/homebrew/include/X11/extensions/xf86vmode.h" ]; then
-#   echo "Copying xf86vmode.h from Homebrew libxxf86vm"
-#   sudo cp /opt/homebrew/include/X11/extensions/xf86vmode.h /usr/local/include/X11/extensions/
-# fi
-# echo "Checking X11 extension headers:"
-# ls -la /usr/local/include/X11/extensions/ || true
-# echo "Checking specifically for xf86vmode.h:"
-# test -f /usr/local/include/X11/extensions/xf86vmode.h && echo "✓ xf86vmode.h found" || echo "✗ xf86vmode.h missing"
-
-# Ensure critical dependencies are properly installed and linked
-echo "Ensuring critical dependencies are properly linked..."
-# Ensure libepoxy is properly linked (no rebuild needed - bottle works fine)
-brew link libepoxy || echo "Could not link libepoxy (continuing anyway)"
-
-# Note: Mesa not needed as separate package - macOS uses native OpenGL framework
-
-# Ensure SPICE dependencies are linked (required for SPICE support)
-brew link spice-protocol || echo "Could not link spice-protocol (continuing anyway)"
-brew link spice-server || echo "Could not link spice-server (continuing anyway)"
-
-# Install Python modules required for virglrenderer build
-echo "Installing Python modules..."
-python3 -m pip install --break-system-packages PyYAML distlib || true
-/opt/homebrew/bin/python3.13 -m pip install --break-system-packages PyYAML distlib || true
-
-# Verify PyYAML and distlib are available for the Python version meson will use
-echo "Checking PyYAML and distlib availability:"
-python3 -c "import yaml; print('PyYAML available for system python3')" || echo "PyYAML not found for system python3"
-/opt/homebrew/bin/python3.13 -c "import yaml, distlib; print('PyYAML and distlib available for Homebrew python3.13')" || echo "Modules not found for Homebrew python3.13"
-
-# X11 development headers (required for Mesa GL compilation, separate from XQuartz runtime)
-echo "Installing X11 development headers..."
-brew install libx11 libxext libxfixes libxrandr libxinerama libxi libxcursor
-brew install xorgproto libxxf86vm  # X11 extension headers including xf86vmode.h
-
+# Note: All dependencies including Python modules (PyYAML, distlib) will be automatically installed by the formula
+echo "Formula will handle all dependencies including Python modules during build"
 echo "Dependencies installed successfully"
 echo
 
@@ -134,51 +81,16 @@ echo "=== Step 2.5: Setup Build Environment (Replicating GitHub Actions) ==="
 # Set PKG_CONFIG_PATH to match what the formula expects
 export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig"
 
-# Add libepoxy path specifically (essential for OpenGL, matching formula)
-EPOXY_PATH=$(find /opt/homebrew/Cellar/libepoxy -name "pkgconfig" -type d 2>/dev/null | head -1)
-if [ -n "$EPOXY_PATH" ]; then
-  export PKG_CONFIG_PATH="$EPOXY_PATH:$PKG_CONFIG_PATH"
-  echo "Added libepoxy pkg-config path: $EPOXY_PATH"
-fi
-
-# Add SPICE paths (essential for SPICE support)
-SPICE_SERVER_PATH=$(find /opt/homebrew/Cellar/spice-server -name "pkgconfig" -type d 2>/dev/null | head -1)
-if [ -n "$SPICE_SERVER_PATH" ]; then
-  export PKG_CONFIG_PATH="$SPICE_SERVER_PATH:$PKG_CONFIG_PATH"
-  echo "Added spice-server pkg-config path: $SPICE_SERVER_PATH"
-fi
-
-SPICE_PROTOCOL_PATH=$(find /opt/homebrew/Cellar/spice-protocol -name "pkgconfig" -type d 2>/dev/null | head -1)
-if [ -n "$SPICE_PROTOCOL_PATH" ]; then
-  export PKG_CONFIG_PATH="$SPICE_PROTOCOL_PATH:$PKG_CONFIG_PATH"
-  echo "Added spice-protocol pkg-config path: $SPICE_PROTOCOL_PATH"
-fi
+# Note: PKG_CONFIG_PATH will be automatically configured by Homebrew for formula dependencies
+echo "PKG_CONFIG_PATH will be configured automatically for formula dependencies"
 
 # The formula creates its own local header structure, so we don't need to manually copy to /usr/local
 # However, we need to ensure all dependencies are properly installed and available via pkg-config
 
 echo "Current PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
 
-# Verify pixman is available via pkg-config (this is what matters for the build)
-echo "Checking pixman via pkg-config:"
-pkg-config --exists pixman-1 && echo "✅ pixman-1 pkg-config found" || echo "❌ pixman-1 pkg-config missing"
-pkg-config --cflags pixman-1 2>/dev/null || echo "Could not get pixman-1 cflags"
-pkg-config --libs pixman-1 2>/dev/null || echo "Could not get pixman-1 libs"
-
-# Verify pixman headers are available where Homebrew installed them
-echo "Checking Homebrew pixman installation:"
-ls -la /opt/homebrew/include/pixman-1/ 2>/dev/null || echo "Homebrew pixman headers not found"
-test -f /opt/homebrew/include/pixman-1/pixman.h && echo "✅ pixman.h found in Homebrew" || echo "❌ pixman.h missing in Homebrew"
-
-# Check other critical dependencies that the formula expects
-echo "Verifying critical build dependencies:"
-for dep in glib-2.0 epoxy sdl2 zlib pixman-1 spice-server spice-protocol; do
-  if pkg-config --exists $dep; then
-    echo "✅ $dep available"
-  else
-    echo "❌ $dep missing"
-  fi
-done
+# Note: All dependency verification will be handled automatically by the formula
+echo "Dependency verification will be performed automatically during formula installation"
 
 # Verify OpenGL framework is available
 echo "Verifying OpenGL framework availability:"
@@ -227,42 +139,8 @@ export HOMEBREW_NO_ANALYTICS=1
 # Set paths that match the formula expectations
 export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig"
 
-# Add critical dependency paths (matching what formula needs)
-EPOXY_PATH=$(find /opt/homebrew/Cellar/libepoxy -name "pkgconfig" -type d 2>/dev/null | head -1)
-if [ -n "$EPOXY_PATH" ]; then
-  export PKG_CONFIG_PATH="$EPOXY_PATH:$PKG_CONFIG_PATH"
-fi
-
-PIXMAN_PATH=$(find /opt/homebrew/Cellar/pixman -name "pkgconfig" -type d 2>/dev/null | head -1)
-if [ -n "$PIXMAN_PATH" ]; then
-  export PKG_CONFIG_PATH="$PIXMAN_PATH:$PKG_CONFIG_PATH"
-fi
-
-SPICE_SERVER_PATH=$(find /opt/homebrew/Cellar/spice-server -name "pkgconfig" -type d 2>/dev/null | head -1)
-if [ -n "$SPICE_SERVER_PATH" ]; then
-  export PKG_CONFIG_PATH="$SPICE_SERVER_PATH:$PKG_CONFIG_PATH"
-fi
-
-SPICE_PROTOCOL_PATH=$(find /opt/homebrew/Cellar/spice-protocol -name "pkgconfig" -type d 2>/dev/null | head -1)
-if [ -n "$SPICE_PROTOCOL_PATH" ]; then
-  export PKG_CONFIG_PATH="$SPICE_PROTOCOL_PATH:$PKG_CONFIG_PATH"
-fi
-
-# Note: Mesa GL not needed as separate package - macOS uses native OpenGL framework via libepoxy
-
-# Add spice-server pkg-config path (critical for SPICE support)
-SPICE_PATH=$(find /opt/homebrew/Cellar/spice-server -name "pkgconfig" -type d 2>/dev/null | head -1)
-if [ -n "$SPICE_PATH" ]; then
-  export PKG_CONFIG_PATH="$SPICE_PATH:$PKG_CONFIG_PATH"
-  echo "Added spice-server pkg-config path: $SPICE_PATH"
-fi
-
-# Add spice-protocol pkg-config path as well
-SPICE_PROTOCOL_PATH=$(find /opt/homebrew/Cellar/spice-protocol -name "pkgconfig" -type d 2>/dev/null | head -1)
-if [ -n "$SPICE_PROTOCOL_PATH" ]; then
-  export PKG_CONFIG_PATH="$SPICE_PROTOCOL_PATH:$PKG_CONFIG_PATH"
-  echo "Added spice-protocol pkg-config path: $SPICE_PROTOCOL_PATH"
-fi
+# Note: All dependency paths will be configured automatically by Homebrew
+echo "Dependency paths will be configured automatically by the formula"
 
 echo "Environment configured:"
 echo "  PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
@@ -275,14 +153,8 @@ echo "🧪 Setting up experimental patches flag (replicating workflow behavior).
 echo "true" > /tmp/apply_experimental_patches
 echo "📝 Created flag file: /tmp/apply_experimental_patches with value 'true'"
 
-# Check SPICE dependencies before building (matching workflow)
-echo "=== Checking SPICE dependencies ==="
-brew list spice-protocol || echo "⚠️ spice-protocol not installed"
-brew list spice-server || echo "⚠️ spice-server not installed"
-
-# Show pkg-config availability for SPICE
-pkg-config --exists spice-protocol && echo "✅ spice-protocol pkg-config found" || echo "⚠️ spice-protocol pkg-config missing"
-pkg-config --exists spice-server && echo "✅ spice-server pkg-config found" || echo "⚠️ spice-server pkg-config missing"
+# Note: SPICE dependencies will be automatically installed by the formula
+echo "=== SPICE dependencies will be handled automatically ==="
 
 # Use verbose mode to see detailed output and force clean build
 echo "Running brew install with experimental patches enabled..."
@@ -303,37 +175,11 @@ brew uninstall qemu-3dfx 2>/dev/null || echo "No existing installation to remove
 # Clear any cached builds
 brew cleanup qemu-3dfx 2>/dev/null || true
 
-# Ensure pixman is properly installed and linked (CRITICAL for QEMU build)
-echo "🔧 Ensuring pixman is properly available..."
-if ! brew list pixman &>/dev/null; then
-    echo "Installing pixman (required dependency)..."
-    brew install pixman
-fi
+# Note: pixman and all other dependencies will be handled by the formula
+echo "🔧 Dependencies including pixman will be installed automatically by formula"
 
-# Only relink if pixman is not already available via pkg-config
-if ! pkg-config --exists pixman-1; then
-    echo "Pixman not available via pkg-config, attempting to link..."
-    if ! brew link pixman; then
-        echo "Standard linking failed, trying with --overwrite..."
-        brew link --overwrite pixman || {
-            echo "ERROR: Could not link pixman - this will cause build failure!"
-            exit 1
-        }
-    fi
-fi
-
-# Final verification
-if ! pkg-config --exists pixman-1; then
-    echo "ERROR: pixman-1 still not available via pkg-config!"
-    exit 1
-fi
-echo "✅ pixman-1 confirmed available"
-
-# Verify critical headers are available before starting build
-echo "🔍 Final verification of build environment:"
-echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
-pkg-config --exists pixman-1 && echo "✅ pixman-1 available" || echo "❌ pixman-1 missing"
-test -f /opt/homebrew/include/pixman-1/pixman.h && echo "✅ pixman.h header found" || echo "❌ pixman.h header missing"
+# Note: All build environment verification will be handled by the formula
+echo "🔍 Build environment will be verified automatically during formula installation"
 
 
 
