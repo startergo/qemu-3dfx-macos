@@ -217,22 +217,20 @@ static const int iAttribs[] = {
 
 static int syncFBConfigToPFD(Display *dpy, const GLXFBConfig *fbc, const int nElem)
 {
-    int ret = 0, colorBits;
-    bool found = false;
+    int ret = -1, colorBits;  // Initialize to -1 (not found)
     for (int i = 0; i < nElem; i++) {
         glXGetFBConfigAttrib(dpy, fbc[i], GLX_BUFFER_SIZE, &colorBits);
         XVisualInfo *vinfo = glXGetVisualFromFBConfig(dpy, fbc[i]);
         if (vinfo) {
             if (vinfo->depth == colorBits) {
-                ret = i;
-                found = true;
+                ret = i;  // Set to valid index (0, 1, 2, ...)
             }
             XFree(vinfo);
         }
-        if (found)
+        if (ret >= 0)  // Break when valid index found
             break;
     }
-    return ret;
+    return ret >= 0 ? ret : 0;  // Return valid index or 0 as fallback
 }
 
 static int *iattribs_fb(Display *dpy, const int do_msaa)
