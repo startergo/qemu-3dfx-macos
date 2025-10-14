@@ -221,10 +221,11 @@ static int syncFBConfigToPFD(Display *dpy, const GLXFBConfig *fbc, const int nEl
     for (int i = 0; i < nElem; i++) {
         glXGetFBConfigAttrib(dpy, fbc[i], GLX_BUFFER_SIZE, &colorBits);
         XVisualInfo *vinfo = glXGetVisualFromFBConfig(dpy, fbc[i]);
-        if (vinfo && vinfo->depth == colorBits)
-            ret = i;
-        if (vinfo)
+        if (vinfo) {
+            if (vinfo->depth == colorBits)
+                ret = i;
             XFree(vinfo);
+        }
         if (ret)
             break;
     }
