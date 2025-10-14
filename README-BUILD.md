@@ -1,6 +1,20 @@
 # QEMU 3dfx/Virgl3D for macOS
 
-This repository contains KJ's patches packaged as a Homebrew formula to easily install QEMU 10.0.0 with 3dfx Voodoo emulation and Virgl3D OpenGL acceleration support on macOS.
+This repository con```bash
+# Sign the binary (removes security warnings and enables proper execution)
+cd $(brew --prefix qemu-3dfx)/sign
+export QEMU_3DFX_COMMIT=$(cd ~/qemu-3dfx-macos && git rev-parse HEAD | cut -c1-7)
+sudo /usr/bin/xattr -c ../bin/qemu-system-* ../bin/qemu-* ../lib/*.dylib
+sudo -E bash ./qemu.sign
+
+# The script will:
+# 1. Get the actual git commit hash from source repository
+# 2. Clear extended attributes that can interfere with signing  
+# 3. Create a self-signed certificate if needed
+# 4. Sign all QEMU binaries and Glide libraries with matching identity
+# 5. Add proper entitlements and icons (cleanly)
+# 6. Verify signatures
+``` patches packaged as a Homebrew formula to easily install QEMU 10.0.0 with 3dfx Voodoo emulation and Virgl3D OpenGL acceleration support on macOS.
 
 ## Features
 
@@ -18,135 +32,53 @@ This repository contains KJ's patches packaged as a Homebrew formula to easily i
 git clone https://github.com/startergo/qemu-3dfx-macos.git
 cd qemu-3dfx-macos
 
-# RECOMMENDED: Use the comprehensive test script (handles all setup automatically)
+# Run the comprehensive setup and build script
 ./homebrew-qemu3dfx/test-formula.sh
 
-# The test script will automatically:
-# 1. Install Xcode Command Line Tools
-# 2. Install XQuartz and set up X11 libraries
-# 3. Install all required dependencies via Homebrew
-# 4. Set up X11 headers for Mesa GL support
-# 5. Configure experimental patches (replicating CI workflow)
-# 6. Build QEMU 10.0.0 with 3dfx and Virgl3D support
-# 7. Run verification tests and show usage examples
-
-# Alternative (only if you've already installed ALL prerequisites manually):
-# brew install ./homebrew-qemu3dfx/Formula/qemu-3dfx.rb
+# Sign the QEMU binary for proper macOS execution (recommended)
+cd $(brew --prefix qemu-3dfx)/sign
+export QEMU_3DFX_COMMIT=$(cd ~/qemu-3dfx-macos && git rev-parse HEAD | cut -c1-7)
+sudo /usr/bin/xattr -c ../bin/qemu-system-* ../bin/qemu-* ../lib/*.dylib
+sudo -E bash ./qemu.sign
 ```
 
-> **Important**: On a fresh system, always use `./homebrew-qemu3dfx/test-formula.sh` as it performs essential setup steps that the direct formula install does not handle.
+The test script automatically handles:
+- Xcode Command Line Tools installation
+- XQuartz and X11 libraries setup  
+- All Homebrew dependencies installation
+- QEMU 10.0.0 building with 3dfx and Virgl3D support
+- Installation verification and testing
 
-## Prerequisites
+> **That's it!** The script handles everything needed on fresh systems.
 
-Before installing QEMU 3dfx, you need to set up the required dependencies:
+## System Requirements
 
-### 1. Install Xcode Command Line Tools
-```bash
-xcode-select --install
-```
-
-### 2. Install Homebrew (if not already installed)
-```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
-
-### 3. Install XQuartz
-```bash
-# Install XQuartz (required for Mesa GL context support)
-brew install --cask xquartz
-
-# After installation, log out and log back in, or restart your Mac
-# This ensures XQuartz is properly integrated with the system
-```
-
-### 4. Install Required Dependencies
-```bash
-# Install core dependencies that the formula needs
-brew install cmake meson ninja pkg-config python@3.12
-
-# Install X11 and OpenGL libraries
-brew install libx11 libxext libxfixes libxrandr libxinerama libxi libxcursor xorgproto
-
-# Install additional dependencies
-brew install glib pixman libepoxy sdl2 gettext libffi
-```
-
-### System Requirements
 - **macOS** 10.15+ (supports both Intel and Apple Silicon)
 - **At least 4GB free disk space** for building QEMU
 - **Internet connection** for downloading source code and dependencies
 
-## Installation Methods
+> **Note**: All dependencies and prerequisites are automatically installed by the test script.
 
-### Method 1: Comprehensive Setup Script (Recommended for Fresh Systems)
+## Binary Signing (Recommended)
 
-The `test-formula.sh` script replicates the CI workflow and handles all setup automatically:
-
-```bash
-# Clone the repository
-git clone https://github.com/startergo/qemu-3dfx-macos.git
-cd qemu-3dfx-macos
-
-# Run the comprehensive setup script
-./homebrew-qemu3dfx/test-formula.sh
-
-# This script automatically performs:
-# - Xcode Command Line Tools installation
-# - XQuartz installation and X11 library setup
-# - All Homebrew dependencies installation
-# - X11 headers setup for Mesa GL support
-# - Experimental patches configuration (matching CI workflow)
-# - Formula building with verbose output
-# - Installation verification and testing
-```
-
-### Method 2: Direct Formula (Only if Prerequisites Already Installed)
+After installation, sign the QEMU binary for proper macOS execution:
 
 ```bash
-# ⚠️ WARNING: This will FAIL on fresh systems without proper setup
-# Only use this if you've manually installed ALL prerequisites
-brew install ./homebrew-qemu3dfx/Formula/qemu-3dfx.rb
+# Sign the binary (removes security warnings and enables proper execution)
+cd $(brew --prefix qemu-3dfx)/sign && ./qemu.sign
+
+# The script will:
+# 1. Create a self-signed certificate if needed
+# 2. Sign all QEMU binaries and Glide libraries
+# 3. Add proper entitlements and icons
+# 4. Verify signatures
 ```
 
-### Method 3: Manual Setup + Formula (Advanced Users)
-
-If you prefer to install prerequisites manually, follow the complete setup guide below:
-
-```bash
-# Step 1: Install Xcode Command Line Tools
-xcode-select --install
-
-# Step 2: Install Homebrew (if not installed)
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# Step 3: Install XQuartz and set up X11 structure
-brew install --cask xquartz
-sudo mkdir -p /opt/X11/lib /opt/X11/include
-
-# Step 4: Install ALL required dependencies
-brew install capstone glib gettext gnutls libepoxy libgcrypt libslirp libusb
-brew install jpeg-turbo lz4 opus sdl2 zstd sdl12-compat sdl2_net sdl2_sound mt32emu
-brew install git wget cmake ninja meson pkg-config pixman libffi python@3.12
-brew install sdl2_image spice-protocol spice-server
-brew install libx11 libxext libxfixes libxrandr libxinerama libxi libxcursor
-brew install xorgproto libxxf86vm
-
-# Step 5: Set up X11 headers for Mesa GL
-sudo mkdir -p /usr/local/include/X11/extensions
-sudo cp -rf /opt/homebrew/include/X11/* /usr/local/include/X11/ 2>/dev/null || true
-
-# Step 6: Install Python modules
-python3 -m pip install --break-system-packages PyYAML || true
-
-# Step 7: Clone and install
-git clone https://github.com/startergo/qemu-3dfx-macos.git
-cd qemu-3dfx-macos
-brew install ./homebrew-qemu3dfx/Formula/qemu-3dfx.rb
-```
+> **Why sign?** macOS requires signed binaries for hypervisor access and removes security warnings.
 
 ## Dependencies
 
-The Homebrew formula automatically installs these dependencies:
+The test script and Homebrew formula automatically install these dependencies:
 
 **Core Build Tools:**
 - `cmake`, `meson`, `ninja`, `pkg-config`
@@ -172,7 +104,7 @@ The Homebrew formula automatically installs these dependencies:
 - `libxinerama`, `libxi`, `libxcursor`
 - `xorgproto`, `libxxf86vm`
 
-> **Note**: The formula handles XQuartz integration and X11 header setup automatically.
+> **Note**: The formula handles XQuartz integration automatically.
 
 ## Installation Output
 
@@ -252,32 +184,10 @@ qemu-system-x86_64 \
 
 ### Installation Issues
 
-1. **Check dependencies**: `brew list | grep qemu-3dfx`
-2. **Reinstall formula**: `brew uninstall qemu-3dfx && brew install ./homebrew-qemu3dfx/Formula/qemu-3dfx.rb`
-3. **Use debug script**: `./homebrew-qemu3dfx/test-formula.sh`
-4. **Check logs**: `brew gist-logs qemu-3dfx` for sharing error details
-
-### Formula Validation
-
-```bash
-# Validate formula syntax
-cd homebrew-qemu3dfx
-brew audit --strict Formula/qemu-3dfx.rb
-
-# Test the formula
-brew test qemu-3dfx
-```
-
-### Missing Dependencies
-
-```bash
-# XQuartz installation
-brew install --cask xquartz
-
-# Manual X11 headers setup (if needed)
-sudo mkdir -p /usr/local/include/X11/extensions
-sudo cp /opt/homebrew/include/X11/extensions/* /usr/local/include/X11/extensions/
-```
+1. **Re-run the test script**: `./homebrew-qemu3dfx/test-formula.sh`
+2. **Check installation**: `brew list | grep qemu-3dfx`
+3. **Sign the binary**: `cd $(brew --prefix qemu-3dfx)/sign && export QEMU_3DFX_COMMIT=$(cd ~/qemu-3dfx-macos && git rev-parse HEAD | cut -c1-7) && sudo /usr/bin/xattr -c ../bin/qemu-* ../lib/*.dylib && sudo -E bash ./qemu.sign`
+4. **Check logs**: `brew gist-logs qemu-3dfx` for sharing build logs or error details
 
 ### Performance Issues
 

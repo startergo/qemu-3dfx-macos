@@ -49,6 +49,17 @@ class Qemu3dfx < Formula
   depends_on "sdl2_net"       # Network support
   depends_on "sdl2_sound"     # Audio support
 
+  # X11 libraries (required for Mesa GL compilation - provides GL/glcorearb.h)
+  depends_on "libx11"         # Core X11 client library
+  depends_on "libxext"        # X11 extension library
+  depends_on "libxfixes"      # X11 fixes extension
+  depends_on "libxrandr"      # X11 randr extension
+  depends_on "libxinerama"    # X11 xinerama extension
+  depends_on "libxi"          # X11 input extension
+  depends_on "libxcursor"     # X11 cursor library
+  depends_on "xorgproto"      # X.Org protocol headers
+  depends_on "libxxf86vm"     # X11 XF86VidMode extension
+
   # Note: XQuartz needed for X11 and OpenGL support - install with: brew install --cask xquartz
 
   # Virglrenderer resource - updated to version 1.2.0 (matching upstream)
