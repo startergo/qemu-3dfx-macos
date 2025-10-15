@@ -13,6 +13,7 @@ class Qemu3dfx < Formula
   depends_on "cmake" => :build
   depends_on "meson" => :build
   depends_on "ninja" => :build
+  depends_on "pkg-config" => :build
   depends_on "python@3.14" => :build
   depends_on "autoconf" => :build      # Required for OpenGLide
   depends_on "automake" => :build      # Required for OpenGLide
@@ -72,9 +73,9 @@ class Qemu3dfx < Formula
 
   # OpenGLide resource for building real Glide libraries
   resource "openglide" do
-    url "https://github.com/startergo/qemu-xtra/archive/refs/heads/master.tar.gz"
-    # Note: Using master branch for latest OpenGLide code
-    # sha256 will be dynamically determined
+    url "https://github.com/startergo/qemu-xtra/archive/e1e9399f7551fc9d1f8f40d66ff89f94579ce2d1.tar.gz"
+    # Note: Pinned to commit e1e9399f7551fc9d1f8f40d66ff89f94579ce2d1 for reproducibility and security
+    sha256 "85cf72ae9516c1d105fb2016bc55b56723ee9525a87bb0e994f88131d7e403c7"
   end
 
   def install
@@ -530,7 +531,7 @@ class Qemu3dfx < Formula
 
     cd glide_build_dir/"openglide" do
         # Make bootstrap script executable
-        chmod 0755, "bootstrap"
+        chmod 0o755, "bootstrap"
         system "./bootstrap"
         
         # Use Homebrew-compatible header approach
@@ -577,6 +578,9 @@ class Qemu3dfx < Formula
                "CPPFLAGS=-I#{buildpath}/openglide_build/include",
                "CFLAGS=-I#{buildpath}/openglide_build/include", 
                "CXXFLAGS=-I#{buildpath}/openglide_build/include",
+               # NOTE: -force_load is required for OpenGLide to access XQuartz's complete OpenGL symbol table
+               # XQuartz is installed as a cask (not formula) so normal dynamic linking may miss symbols
+               # This ensures all OpenGL functions are available for 3dfx Glide API emulation
                "LDFLAGS=-L#{xquartz_lib_dir} -Wl,-rpath,#{xquartz_lib_dir} -Wl,-force_load,#{xquartz_gl_lib}",
                "LIBS=-lX11"
         system "make"
