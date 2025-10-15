@@ -15,6 +15,9 @@ class Qemu3dfx < Formula
   depends_on "ninja" => :build
   depends_on "pkg-config" => :build
   depends_on "python@3.13" => :build
+  depends_on "autoconf" => :build      # Required for OpenGLide
+  depends_on "automake" => :build      # Required for OpenGLide
+  depends_on "libtool" => :build       # Required for OpenGLide
 
   # Runtime dependencies (matching official prerequisites for fresh system)
   # Core QEMU prerequisites from official documentation
@@ -66,6 +69,13 @@ class Qemu3dfx < Formula
   resource "virglrenderer" do
     url "https://gitlab.freedesktop.org/virgl/virglrenderer/-/archive/virglrenderer-1.2.0/virglrenderer-virglrenderer-1.2.0.tar.gz"
     sha256 "b181b668afae817953c84635fac2dc4c2e5786c710b7d225ae215d15674a15c7"
+  end
+
+  # OpenGLide resource for building real Glide libraries
+  resource "openglide" do
+    url "https://github.com/startergo/qemu-xtra/archive/refs/heads/master.tar.gz"
+    # Note: Using master branch for latest OpenGLide code
+    # sha256 will be dynamically determined
   end
 
   def install
@@ -509,58 +519,72 @@ class Qemu3dfx < Formula
   end
 
   def build_glide_libraries
-    # Build Glide shared libraries for guest OS applications
-    # These libraries are loaded by DOS/Windows games to communicate with QEMU's 3dfx emulation
-    
-    repo_root = find_repo_root(__dir__)
-    return unless repo_root
-    
-    dso_dir = "#{repo_root}/wrappers/3dfx/dso"
-    return unless Dir.exist?(dso_dir)
+    # Create a clean build environment for OpenGLide
+    glide_build_dir = buildpath/"openglide_build"
+    glide_build_dir.mkpath
 
-    ohai "Building Glide shared libraries for guest OS use..."
-    
-    # Set up compiler flags for macOS dylib building
-    commit_id = `cd #{repo_root} && git rev-parse --short HEAD`.strip
-    
-    cflags = [
-      "-I#{buildpath}/hw/3dfx",
-      "-I#{dso_dir}/../src", 
-      "-D__REV__=\"#{commit_id}\"",
-      "-Wall",
-      "-O3",
-      "-fomit-frame-pointer",
-      "-fPIC"
-    ]
-    
-    ldflags = [
-      "-shared",
-      "-Wl,-undefined,dynamic_lookup"  # Allow undefined symbols for dylib
-    ]
-    
-    # Build libglide2x.0.dylib (Glide 2.x API) - main versioned library
-    ohai "Building libglide2x.0.dylib"
-    system "#{ENV.cc}", *cflags, "-DGLIDE_VERSION=2", 
-           "#{dso_dir}/glidedso.c", *ldflags,
-           "-o", "#{lib}/libglide2x.0.dylib"
-    
-    # Build libglide3x.0.dylib (Glide 3.x API) - main versioned library
-    ohai "Building libglide3x.0.dylib"
-    system "#{ENV.cc}", *cflags, "-DGLIDE_VERSION=3",
-           "#{dso_dir}/glidedso.c", *ldflags,
-           "-o", "#{lib}/libglide3x.0.dylib"
-           
-    # Create symlinks for compatibility (unversioned names point to versioned libraries)
-    ln_sf "libglide2x.0.dylib", "#{lib}/libglide2x.dylib"
-    ln_sf "libglide2x.0.dylib", "#{lib}/libglide2x.2.dylib"
-    ln_sf "libglide3x.0.dylib", "#{lib}/libglide3x.dylib"
-    ln_sf "libglide3x.0.dylib", "#{lib}/libglide3x.3.dylib"
-    
-    ohai "Glide libraries built successfully:"
-    ohai "  - #{lib}/libglide2x.0.dylib (main Glide 2.x library)"
-    ohai "  - #{lib}/libglide3x.0.dylib (main Glide 3.x library)"
-    ohai "  - #{lib}/libglide2x.dylib (unversioned symlink)"
-    ohai "  - #{lib}/libglide3x.dylib (unversioned symlink)"
+    cd glide_build_dir do
+      # Clean clone and setup OpenGLide
+      system "git", "clone", "https://github.com/startergo/qemu-xtra.git", "."
+      cd "openglide" do
+        # Make bootstrap script executable
+        chmod 0755, "bootstrap"
+        system "./bootstrap"
+        
+        # Use Homebrew-compatible header approach
+        # Create symlinks to make GL headers discoverable in a way that superenv won't remove
+        include_dir = buildpath/"openglide_build/include"
+        gl_include_dir = include_dir/"GL"
+        khr_include_dir = include_dir/"KHR"
+        gl_include_dir.mkpath
+        khr_include_dir.mkpath
+        
+        # Symlink GL headers to local include directory that superenv won't touch
+        # XQuartz is installed as a cask, not a formula, so use direct path
+        xquartz_gl_include = "/opt/X11/include/GL"
+        xquartz_khr_include = "/opt/X11/include/KHR"
+        
+        if Dir.exist?(xquartz_gl_include)
+          Dir.glob("#{xquartz_gl_include}/*.h").each do |header|
+            header_name = File.basename(header)
+            (gl_include_dir/header_name).make_symlink(header)
+          end
+        else
+          ohai "Warning: XQuartz GL headers not found at #{xquartz_gl_include}"
+          ohai "Please install XQuartz: brew install --cask xquartz"
+        end
+        
+        # Symlink KHR headers (required by GL headers)
+        if Dir.exist?(xquartz_khr_include)
+          Dir.glob("#{xquartz_khr_include}/*.h").each do |header|
+            header_name = File.basename(header)
+            (khr_include_dir/header_name).make_symlink(header)
+          end
+        else
+          ohai "Warning: XQuartz KHR headers not found at #{xquartz_khr_include}"
+        end
+        
+        system "./configure", "--disable-sdl", 
+               "--prefix=#{prefix}",
+               "CPPFLAGS=-I#{buildpath}/openglide_build/include",
+               "CFLAGS=-I#{buildpath}/openglide_build/include", 
+               "CXXFLAGS=-I#{buildpath}/openglide_build/include",
+               "LDFLAGS=-L/opt/X11/lib -Wl,-rpath,/opt/X11/lib -Wl,-force_load,/opt/X11/lib/libGL.dylib",
+               "LIBS=-lX11"
+        system "make"
+        
+        # Install OpenGLide libraries directly to Homebrew prefix
+        system "make", "install"
+        
+        ohai "OpenGLide libraries installed to Homebrew prefix:"
+        ohai "  Access via: $(brew --prefix qemu-3dfx)/lib/"
+        ohai "  libglide2x: $(brew --prefix qemu-3dfx)/lib/libglide2x.dylib"
+        ohai "  libglide3x: $(brew --prefix qemu-3dfx)/lib/libglide3x.dylib"
+        ohai "  Headers: $(brew --prefix qemu-3dfx)/include/openglide/"
+      end
+    end
+
+    glide_build_dir
   end
 
   def copy_3dfx_wrapper_sources

@@ -218,21 +218,51 @@ jobs:
         echo "=== Available libraries in Homebrew prefix ==="
         ls -la "${HOMEBREW_PREFIX}/lib/" | grep -E "(glide|virgl|spice|SDL2)" || echo "No matching libraries found"
         
-        # Copy Glide libraries (3dfx support)
-        if [ -f "${HOMEBREW_PREFIX}/lib/libglide2x.0.dylib" ]; then
-          cp "${HOMEBREW_PREFIX}/lib/libglide2x.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
-          ln -sf "libglide2x.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/libglide2x.dylib"
-          echo "✅ Copied Glide2x library"
-        else
-          echo "⚠️ libglide2x.0.dylib not found in ${HOMEBREW_PREFIX}/lib/"
+        # Copy Glide libraries (3dfx support) - now built from OpenGLide
+        GLIDE_FOUND=false
+        
+        # Look for versioned Glide libraries first (preferred)
+        for glide_version in "0" "2" "3"; do
+          if [ -f "${HOMEBREW_PREFIX}/lib/libglide2x.${glide_version}.dylib" ]; then
+            cp "${HOMEBREW_PREFIX}/lib/libglide2x.${glide_version}.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+            ln -sf "libglide2x.${glide_version}.dylib" "${STAGE_DIR}/opt/homebrew/lib/libglide2x.dylib"
+            echo "✅ Copied Glide2x library (version ${glide_version})"
+            GLIDE_FOUND=true
+            break
+          fi
+        done
+        
+        # Fallback to unversioned library
+        if [ "$GLIDE_FOUND" = "false" ] && [ -f "${HOMEBREW_PREFIX}/lib/libglide2x.dylib" ]; then
+          cp "${HOMEBREW_PREFIX}/lib/libglide2x.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          echo "✅ Copied Glide2x library (unversioned)"
+          GLIDE_FOUND=true
         fi
         
-        if [ -f "${HOMEBREW_PREFIX}/lib/libglide3x.0.dylib" ]; then
-          cp "${HOMEBREW_PREFIX}/lib/libglide3x.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
-          ln -sf "libglide3x.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/libglide3x.dylib"
-          echo "✅ Copied Glide3x library"
+        # Copy Glide3x with same logic
+        for glide_version in "0" "3"; do
+          if [ -f "${HOMEBREW_PREFIX}/lib/libglide3x.${glide_version}.dylib" ]; then
+            cp "${HOMEBREW_PREFIX}/lib/libglide3x.${glide_version}.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+            ln -sf "libglide3x.${glide_version}.dylib" "${STAGE_DIR}/opt/homebrew/lib/libglide3x.dylib"
+            echo "✅ Copied Glide3x library (version ${glide_version})"
+            GLIDE_FOUND=true
+            break
+          fi
+        done
+        
+        # Fallback to unversioned Glide3x
+        if [ ! -f "${STAGE_DIR}/opt/homebrew/lib/libglide3x.dylib" ] && [ -f "${HOMEBREW_PREFIX}/lib/libglide3x.dylib" ]; then
+          cp "${HOMEBREW_PREFIX}/lib/libglide3x.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          echo "✅ Copied Glide3x library (unversioned)"
+          GLIDE_FOUND=true
+        fi
+        
+        if [ "$GLIDE_FOUND" = "false" ]; then
+          echo "⚠️ No Glide libraries found - 3dfx support may be limited"
+          echo "Available Glide files:"
+          ls -la "${HOMEBREW_PREFIX}/lib/" | grep glide || echo "None found"
         else
-          echo "⚠️ libglide3x.0.dylib not found in ${HOMEBREW_PREFIX}/lib/"
+          echo "✅ Glide libraries copied successfully"
         fi
         
         # Copy VirGL libraries (Virgl3D support)
