@@ -13,8 +13,7 @@ class Qemu3dfx < Formula
   depends_on "cmake" => :build
   depends_on "meson" => :build
   depends_on "ninja" => :build
-  depends_on "pkg-config" => :build
-  depends_on "python@3.13" => :build
+  depends_on "python@3.14" => :build
   depends_on "autoconf" => :build      # Required for OpenGLide
   depends_on "automake" => :build      # Required for OpenGLide
   depends_on "libtool" => :build       # Required for OpenGLide
@@ -92,21 +91,25 @@ class Qemu3dfx < Formula
     # Build virglrenderer first with macOS patches
     resource("virglrenderer").stage do
       # virglrenderer 1.2.0 needs PyYAML for u_format_table generation
-      # Use Python 3.13 for better compatibility (3.14 is too new)
-      python_bin = Formula["python@3.13"].opt_bin/"python3.13"
+      # Use Python 3.14 since that's what meson finds by default
+      python_bin = Formula["python@3.14"].opt_bin/"python3.14"
       
       # Install PyYAML and distlib if needed
       unless quiet_system python_bin, "-c", "import yaml"
-        ohai "Installing PyYAML in Python 3.13..."
+        ohai "Installing PyYAML in Python 3.14..."
         system python_bin, "-m", "pip", "install", "--break-system-packages", "PyYAML"
       end
       
       unless quiet_system python_bin, "-c", "import distlib"
-        ohai "Installing distlib in Python 3.13..."
+        ohai "Installing distlib in Python 3.14..."
         system python_bin, "-m", "pip", "install", "--break-system-packages", "distlib"
       end
       
       ohai "PyYAML available for virglrenderer build"
+      
+      # Set Python environment for meson to use the correct Python with PyYAML
+      ENV["PYTHON"] = python_bin
+      ENV.prepend_path "PATH", Formula["python@3.14"].opt_bin
       
       # Apply macOS compatibility patches to virglrenderer
       # Find the repository root by looking for key files
@@ -166,11 +169,7 @@ class Qemu3dfx < Formula
       end
 
       mkdir "build" do
-        # Set Python path to ensure virglrenderer uses Python 3.13 with PyYAML
-        # Override PATH to ensure meson finds the correct Python
-        python_bin = Formula["python@3.13"].opt_bin/"python3.13"
-        ENV["PYTHON"] = python_bin
-        ENV.prepend_path "PATH", Formula["python@3.13"].opt_bin
+        # Python 3.14 with PyYAML is already set up and first in PATH
         
         system "meson", "setup", "..",
                "--prefix=#{prefix}",
@@ -519,14 +518,17 @@ class Qemu3dfx < Formula
   end
 
   def build_glide_libraries
-    # Create a clean build environment for OpenGLide
+    # Create a clean build environment for OpenGLide using the declared resource
     glide_build_dir = buildpath/"openglide_build"
     glide_build_dir.mkpath
 
-    cd glide_build_dir do
-      # Clean clone and setup OpenGLide
-      system "git", "clone", "https://github.com/startergo/qemu-xtra.git", "."
-      cd "openglide" do
+    # Stage the OpenGLide resource instead of cloning from git
+    resource("openglide").stage do
+      # Extract to the build directory
+      cp_r ".", glide_build_dir
+    end
+
+    cd glide_build_dir/"openglide" do
         # Make bootstrap script executable
         chmod 0755, "bootstrap"
         system "./bootstrap"
@@ -543,6 +545,8 @@ class Qemu3dfx < Formula
         # XQuartz is installed as a cask, not a formula, so use direct path
         xquartz_gl_include = "/opt/X11/include/GL"
         xquartz_khr_include = "/opt/X11/include/KHR"
+        xquartz_lib_dir = "/opt/X11/lib"
+        xquartz_gl_lib = "#{xquartz_lib_dir}/libGL.dylib"
         
         if Dir.exist?(xquartz_gl_include)
           Dir.glob("#{xquartz_gl_include}/*.h").each do |header|
@@ -550,8 +554,7 @@ class Qemu3dfx < Formula
             (gl_include_dir/header_name).make_symlink(header)
           end
         else
-          ohai "Warning: XQuartz GL headers not found at #{xquartz_gl_include}"
-          ohai "Please install XQuartz: brew install --cask xquartz"
+          odie "XQuartz GL headers not found at #{xquartz_gl_include}. Please install XQuartz with: brew install --cask xquartz"
         end
         
         # Symlink KHR headers (required by GL headers)
@@ -561,7 +564,12 @@ class Qemu3dfx < Formula
             (khr_include_dir/header_name).make_symlink(header)
           end
         else
-          ohai "Warning: XQuartz KHR headers not found at #{xquartz_khr_include}"
+          odie "XQuartz KHR headers not found at #{xquartz_khr_include}. Please install XQuartz with: brew install --cask xquartz"
+        end
+        
+        # Verify XQuartz library exists before using it
+        unless File.exist?(xquartz_gl_lib)
+          odie "XQuartz OpenGL library not found at #{xquartz_gl_lib}. Please install XQuartz with: brew install --cask xquartz"
         end
         
         system "./configure", "--disable-sdl", 
@@ -569,7 +577,7 @@ class Qemu3dfx < Formula
                "CPPFLAGS=-I#{buildpath}/openglide_build/include",
                "CFLAGS=-I#{buildpath}/openglide_build/include", 
                "CXXFLAGS=-I#{buildpath}/openglide_build/include",
-               "LDFLAGS=-L/opt/X11/lib -Wl,-rpath,/opt/X11/lib -Wl,-force_load,/opt/X11/lib/libGL.dylib",
+               "LDFLAGS=-L#{xquartz_lib_dir} -Wl,-rpath,#{xquartz_lib_dir} -Wl,-force_load,#{xquartz_gl_lib}",
                "LIBS=-lX11"
         system "make"
         
@@ -581,7 +589,6 @@ class Qemu3dfx < Formula
         ohai "  libglide2x: $(brew --prefix qemu-3dfx)/lib/libglide2x.dylib"
         ohai "  libglide3x: $(brew --prefix qemu-3dfx)/lib/libglide3x.dylib"
         ohai "  Headers: $(brew --prefix qemu-3dfx)/include/openglide/"
-      end
     end
 
     glide_build_dir

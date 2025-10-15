@@ -240,7 +240,7 @@ jobs:
         fi
         
         # Copy Glide3x with same logic
-        for glide_version in "0" "3"; do
+        for glide_version in "0" "2" "3"; do
           if [ -f "${HOMEBREW_PREFIX}/lib/libglide3x.${glide_version}.dylib" ]; then
             cp "${HOMEBREW_PREFIX}/lib/libglide3x.${glide_version}.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
             ln -sf "libglide3x.${glide_version}.dylib" "${STAGE_DIR}/opt/homebrew/lib/libglide3x.dylib"
