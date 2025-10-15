@@ -51,7 +51,10 @@ After installation, sign the QEMU binary for proper macOS execution:
 
 ```bash
 # Sign the binary (removes security warnings and enables proper execution)
-cd $(brew --prefix qemu-3dfx)/sign && ./qemu.sign
+cd $(brew --prefix qemu-3dfx)/sign
+export QEMU_3DFX_COMMIT=$(cd ~/qemu-3dfx-macos && git rev-parse HEAD | cut -c1-7)
+sudo /usr/bin/xattr -c ../bin/qemu-system-* ../bin/qemu-* ../lib/*.dylib
+sudo -E bash ./qemu.sign
 
 # The script will:
 # 1. Create a self-signed certificate if needed
@@ -172,7 +175,13 @@ qemu-system-x86_64 \
 
 1. **Re-run the test script**: `./homebrew-qemu3dfx/test-formula.sh`
 2. **Check installation**: `brew list | grep qemu-3dfx`
-3. **Sign the binary**: `cd $(brew --prefix qemu-3dfx)/sign && export QEMU_3DFX_COMMIT=$(cd ~/qemu-3dfx-macos && git rev-parse HEAD | cut -c1-7) && sudo /usr/bin/xattr -c ../bin/qemu-* ../lib/*.dylib && sudo -E bash ./qemu.sign`
+3. **Sign the binary**: 
+   ```bash
+   cd $(brew --prefix qemu-3dfx)/sign
+   export QEMU_3DFX_COMMIT=$(cd ~/qemu-3dfx-macos && git rev-parse HEAD | cut -c1-7)
+   sudo /usr/bin/xattr -c ../bin/qemu-system-* ../bin/qemu-* ../lib/*.dylib
+   sudo -E bash ./qemu.sign
+   ```
 4. **Check logs**: `brew gist-logs qemu-3dfx` for sharing build logs or error details
 
 ### Performance Issues
