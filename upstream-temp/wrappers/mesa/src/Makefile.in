@@ -1,0 +1,72 @@
+QEMU_SRC_DIR=../../../qemu-1
+FXLIB=../../fxlib
+CROSS=
+CC=$(CROSS)gcc
+RC=windres
+DLLTOOL=dlltool
+STRIP=strip
+CFLAGS=-march=x86-64-v2 -mtune=generic -mfpmath=sse -O3
+CFLAGS+=-pipe -I$(QEMU_SRC_DIR)/hw/mesa -I$(FXLIB) -Wall -Werror -flto=auto -fomit-frame-pointer
+LDFLAGS=-static-libgcc
+LDFLAGS+=-Wl,--disable-auto-image-base,--no-seh,--dynamicbase,--nxcompat
+SRCDIR=../src
+TARGET=opengl32.dll
+TOOLS=wglinfo.exe
+GENDEF=gendef
+
+C_OBJS:=\
+    fxhook.o \
+    fxhpat.o \
+    fxlib9x.o \
+    fxlibnt.o \
+    fxtime.o \
+    md5.o \
+
+
+all: fxlib $(TARGET) exports-check $(TOOLS)
+
+exports-check: $(TARGET)
+	@if [ $$(objdump -x $(TARGET) | grep "\[[\ 0-9]*\]" | grep -v "^\[" | \
+		grep -v -e reloc -e Export\ RVA | wc -l) -ne 2976 ]; \
+		then exit 1; fi
+
+$(TARGET): $(C_OBJS) szdata.o wrapgl32.o stamp.o
+	@echo "  CFLAGS  $(CFLAGS)"
+	@echo "  LDFLAGS $(LDFLAGS)"
+	@$(CC) -shared $(CFLAGS) -o $@ $+ $(LDFLAGS)
+	@$(GENDEF) - $@ | sed "s/\(@[0-9]*\)@.*/\1/;s/\(^.*\)\(@[0-9]*\)/\1\ =\ \1\2/;s/^mgl/wgl/;s/wgd//" | \
+		sed "s/\ ;\ Check!!!.*//;/lto_priv/d;/CallWndProc/d" | \
+		grep -e ^LIB -e ^EXP -e " = " > $(@:.dll=.def)
+	@echo "  LD  $@"
+	@$(CC) -shared $(CFLAGS) -o $@ $(@:dll=def) $+ $(LDFLAGS)
+
+$(TOOLS):
+	@echo "  LD  $@"
+	@$(CC) $(CFLAGS) -s -o $@ $(SRCDIR)/wglinfo.c $(LDFLAGS) -lgdi32 -lopengl32
+
+stamp.o:
+	@git rev-parse --short HEAD | sed "s/\(.*\)/const\ char\ rev_\[\]\ =\ \"\1\-\";/" > /tmp/$(@:o=c)
+	@echo -n "  REV $@"; cat /tmp/$(@:o=c) | sed "s/.*rev_\[\]\ =//;s/;//"
+	@$(CC) -c -o $@ /tmp/$(@:o=c)
+
+fxlib:
+	@if [ "$$MSYSTEM" != "MINGW32" ]; then echo "Error: MSYSTEM == $$MSYSTEM"; exit 1; fi
+	@echo "  CC  $(C_OBJS)"
+	@for i in $(C_OBJS); do \
+		$(CC) $(CFLAGS) -c -o $$i $(FXLIB)/`echo $$i | sed "s/\.o/\.c/"`; \
+	done
+
+%.o: $(SRCDIR)/%.c
+	@echo "  CC  $@"
+	@$(CC) $(CFLAGS) -c -o $@ $<
+
+clean:
+	@rm -f *.o *.def
+	@if [ -f $(TARGET) ]; then \
+	    $(STRIP) --strip-unneeded $(TARGET); \
+	    sh -c 'ls -l $(TARGET)'; \
+	    strings $(TARGET) | grep " build "; fi
+
+distclean: clean
+	@rm -f $(TARGET) $(TOOLS)
+
