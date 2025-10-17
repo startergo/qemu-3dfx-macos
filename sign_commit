@@ -11,9 +11,9 @@ ARG=$@; if [ -z $ARG ]; then ARG=HEAD; fi
 if [ -n "$MANUAL_COMMIT" ]; then
     COMMIT_ID="$MANUAL_COMMIT"
     echo "Using manual commit ID: $MANUAL_COMMIT"
-elif [ -n "$COMMIT_ID_OVERRIDE" ]; then
-    COMMIT_ID="$COMMIT_ID_OVERRIDE"
-    echo "Using environment commit ID override: $COMMIT_ID_OVERRIDE"
+elif [ -n "$QEMU_3DFX_COMMIT" ]; then
+    COMMIT_ID="$QEMU_3DFX_COMMIT"
+    echo "Using QEMU_3DFX_COMMIT environment variable: $QEMU_3DFX_COMMIT"
 else
     COMMIT_ID=`cd $GIT; git rev-parse --short $ARG`
     echo "Using git commit ID: $COMMIT_ID"

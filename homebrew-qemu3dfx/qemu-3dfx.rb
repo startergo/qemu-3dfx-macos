@@ -319,12 +319,14 @@ class Qemu3dfx < Formula
     repo_dir = find_repo_root(__dir__)
     return unless repo_dir
     
-    # Get the same commit ID used during build
-    commit_id = `cd #{repo_dir} && git rev-parse --short HEAD`.strip
+    # CRITICAL: Use the same commit hash that was set during build process
+    # Priority: QEMU_3DFX_COMMIT (manual override) > git auto-detection
+    commit_id = ENV["QEMU_3DFX_COMMIT"] || `cd #{repo_dir} && git rev-parse --short HEAD`.strip
     
     ohai "Post-install: Signing binaries with commit ID #{commit_id}"
+    ohai "Commit source: #{ENV["QEMU_3DFX_COMMIT"] ? "QEMU_3DFX_COMMIT env var" : "git auto-detection"}"
     
-    # Set environment variable for qemu.sign script
+    # Ensure the same commit ID is available for qemu.sign script
     ENV["QEMU_3DFX_COMMIT"] = commit_id
     
     # Run the qemu.sign script if it exists
@@ -462,12 +464,13 @@ class Qemu3dfx < Formula
       # The sign_commit script embeds git commit info from the qemu-3dfx repository
       # and ensures proper signature matching between QEMU and 3dfx drivers
       
-      # Get commit ID for naming and signing
-      commit_id = `cd #{repo_root} && git rev-parse --short HEAD`.strip
+      # Use existing commit ID from environment if set, otherwise get from git
+      # Priority: QEMU_3DFX_COMMIT (manual override) > git auto-detection
+      commit_id = ENV["QEMU_3DFX_COMMIT"] || `cd #{repo_root} && git rev-parse --short HEAD`.strip
       
       ohai "Using commit ID: #{commit_id}"
       
-      # Export commit ID for binary signing process
+      # CRITICAL: Set QEMU_3DFX_COMMIT to ensure both sign_commit and post_install qemu.sign use the same hash
       ENV["QEMU_3DFX_COMMIT"] = commit_id
       
       # Run sign_commit matching upstream: bash ../scripts/sign_commit
