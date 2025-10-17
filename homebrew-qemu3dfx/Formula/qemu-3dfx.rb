@@ -79,6 +79,101 @@ class Qemu3dfx < Formula
   end
 
   def install
+    # Set repository root - handle both local development and Homebrew tap scenarios
+    unless ENV["QEMU_3DFX_REPO_ROOT"]
+      # Try the local development path first (../../ from homebrew-qemu3dfx/Formula/)
+      local_path = File.expand_path("../..", __dir__)
+      key_files = ["00-qemu100x-mesa-glide.patch", "qemu-0", "virgil3d"]
+      
+      if key_files.all? { |file| File.exist?(File.join(local_path, file)) }
+        ENV["QEMU_3DFX_REPO_ROOT"] = local_path
+        ohai "Using local development repository: #{local_path}"
+      else
+        # When running from a Homebrew tap, suggest the most likely local path
+        suggested_path = "/Users/macbookpro/Downloads/qemu-3dfx"
+        if Dir.exist?(suggested_path) && key_files.all? { |file| File.exist?(File.join(suggested_path, file)) }
+          ENV["QEMU_3DFX_REPO_ROOT"] = suggested_path
+          ohai "Auto-detected repository at common location: #{suggested_path}"
+        else
+          odie "Repository root not found. Please set QEMU_3DFX_REPO_ROOT environment variable to your qemu-3dfx repository path.\nExample: export QEMU_3DFX_REPO_ROOT=/Users/macbookpro/Downloads/qemu-3dfx"
+        end
+      end
+    else
+      ohai "Using QEMU_3DFX_REPO_ROOT from environment: #{ENV["QEMU_3DFX_REPO_ROOT"]}"
+    end
+    
+    # Check for commit override - try multiple methods since Homebrew sanitizes environment
+    commit_override = nil
+    commit_source = nil
+    temp_commit_file = "/tmp/qemu_3dfx_commit_override"
+    
+    # Method 1: Environment variable (if Homebrew passes it through)
+    if ENV["QEMU_3DFX_COMMIT"]
+      commit_override = ENV["QEMU_3DFX_COMMIT"]
+      commit_source = "ENV variable"
+    end
+    
+    # Method 1b: Try multiple ways to read from parent shell environment
+    if commit_override.nil?
+      # Try reading from parent process environment via ps
+      parent_env_commit = nil
+      begin
+        # Get parent shell PID and try to read its environment
+        ppid = Process.ppid
+        env_output = `ps eww #{ppid} 2>/dev/null | grep -o 'QEMU_3DFX_COMMIT=[^[:space:]]*' | cut -d= -f2`.strip
+        parent_env_commit = env_output unless env_output.empty?
+      rescue
+        # Ignore errors and try next method
+      end
+      
+      # Try reading via bash -c to access parent environment
+      if parent_env_commit.nil? || parent_env_commit.empty?
+        bash_commit = `bash -c 'echo $QEMU_3DFX_COMMIT' 2>/dev/null`.strip
+        parent_env_commit = bash_commit unless bash_commit.empty?
+      end
+      
+      # Try reading via zsh -c to access parent environment  
+      if parent_env_commit.nil? || parent_env_commit.empty?
+        zsh_commit = `zsh -c 'echo $QEMU_3DFX_COMMIT' 2>/dev/null`.strip
+        parent_env_commit = zsh_commit unless zsh_commit.empty?
+      end
+      
+      if parent_env_commit && !parent_env_commit.empty?
+        # Automatically create the temp file from the environment variable
+        File.write(temp_commit_file, parent_env_commit)
+        commit_override = parent_env_commit
+        commit_source = "shell ENV auto-created temp file"
+        ohai "Auto-created temp file from shell QEMU_3DFX_COMMIT: #{parent_env_commit}"
+      end
+    end
+    
+    # Method 2: Check for a temporary file (user can create this before running brew)
+    if commit_override.nil? && File.exist?(temp_commit_file)
+      commit_override = File.read(temp_commit_file).strip
+      commit_source = "temp file #{temp_commit_file}"
+    end
+    
+    # Method 3: Check build arguments (Homebrew sometimes passes these)
+    ARGV.each do |arg|
+      if arg.start_with?("--commit=")
+        commit_override = arg.split("=", 2)[1]
+        commit_source = "build argument"
+        break
+      end
+    end
+    
+    # Apply the override if found
+    if commit_override && !commit_override.empty?
+      ohai "QEMU_3DFX_COMMIT override detected: #{commit_override} (from #{commit_source})"
+      ENV["QEMU_3DFX_COMMIT"] = commit_override
+      # Store the commit ID persistently for post_install
+      (buildpath/"QEMU_3DFX_COMMIT_ID").write(commit_override)
+    else
+      ohai "No QEMU_3DFX_COMMIT override - will use default branch commit"
+      ohai "To override commit: export QEMU_3DFX_COMMIT=your_commit_hash && brew install ..."
+      ohai "Or manually: echo 'your_commit_hash' > #{temp_commit_file} && brew install ..."
+    end
+    
     # Set up build environment (minimal, matching build script)
     ENV["PKG_CONFIG_PATH"] = "#{HOMEBREW_PREFIX}/lib/pkgconfig"
 
@@ -312,19 +407,57 @@ class Qemu3dfx < Formula
 
     # Create version info
     (prefix/"VERSION").write("#{version}-#{revision}")
+    
+    # Copy the stored commit ID to prefix for post_install access
+    if File.exist?("#{buildpath}/QEMU_3DFX_COMMIT_ID")
+      cp "#{buildpath}/QEMU_3DFX_COMMIT_ID", "#{prefix}/QEMU_3DFX_COMMIT_ID"
+      ohai "Copied commit ID file to prefix for post_install access"
+    end
   end
 
   def post_install
+    # Set repository root relative to Formula location (in case it's not set)
+    ENV["QEMU_3DFX_REPO_ROOT"] ||= File.expand_path("../..", __dir__)
+    
     # Sign the binaries with matching commit ID after installation
-    repo_dir = find_repo_root(__dir__)
+    repo_dir = ENV["QEMU_3DFX_REPO_ROOT"]
     return unless repo_dir
     
     # CRITICAL: Use the same commit hash that was set during build process
-    # Priority: QEMU_3DFX_COMMIT (manual override) > git auto-detection
-    commit_id = ENV["QEMU_3DFX_COMMIT"] || `cd #{repo_dir} && git rev-parse --short HEAD`.strip
+    # Priority: QEMU_3DFX_COMMIT (manual override) > stored from build > git repository
+    if ENV["QEMU_3DFX_COMMIT"]
+      commit_id = ENV["QEMU_3DFX_COMMIT"]
+      commit_source = "QEMU_3DFX_COMMIT env var"
+    else
+      # Try to read the commit ID that was stored during the build process
+      stored_commit_file = "#{prefix}/QEMU_3DFX_COMMIT_ID"
+      if File.exist?(stored_commit_file)
+        commit_id = File.read(stored_commit_file).strip
+        commit_source = "stored from build process"
+        ohai "Retrieved stored commit ID: #{commit_id}"
+      else
+        # Fallback to git repository detection
+        begin
+          commit_id = `cd "#{repo_dir}" && git rev-parse --short remotes/origin/homebrew-qemu-3dfx 2>/dev/null`.strip
+          if commit_id.empty? || $?.exitstatus != 0
+            # Fallback to local branch if remote doesn't work
+            commit_id = `cd "#{repo_dir}" && git rev-parse --short homebrew-qemu-3dfx 2>/dev/null`.strip
+          end
+          if commit_id.empty? || $?.exitstatus != 0
+            # Final fallback to HEAD
+            commit_id = `cd "#{repo_dir}" && git rev-parse --short HEAD 2>/dev/null`.strip
+          end
+          commit_source = "git repository"
+        rescue => e
+          ohai "Warning: Could not determine git commit: #{e.message}"
+          commit_id = "unknown"
+          commit_source = "fallback"
+        end
+      end
+    end
     
     ohai "Post-install: Signing binaries with commit ID #{commit_id}"
-    ohai "Commit source: #{ENV["QEMU_3DFX_COMMIT"] ? "QEMU_3DFX_COMMIT env var" : "git auto-detection"}"
+    ohai "Commit source: #{commit_source}"
     
     # Ensure the same commit ID is available for qemu.sign script
     ENV["QEMU_3DFX_COMMIT"] = commit_id
@@ -374,8 +507,14 @@ class Qemu3dfx < Formula
       system "git", "commit", "-m", "Initial QEMU source import"
     end
     
-    # Find repository root using helper method
-    repo_root = find_repo_root(__dir__)
+    # Find repository root using helper method - pass the current working directory as a hint
+    repo_root = if ENV["QEMU_3DFX_REPO_ROOT"]
+      # Manual override has highest priority
+      ohai "Using manual repository override: #{ENV["QEMU_3DFX_REPO_ROOT"]}"
+      ENV["QEMU_3DFX_REPO_ROOT"]
+    else
+      find_repo_root(__dir__)
+    end
     if repo_root.nil?
       odie "Could not locate qemu-3dfx repository root! Ensure all required files are present."
     end
@@ -457,23 +596,52 @@ class Qemu3dfx < Formula
       end
     end
 
-    # Step 3: Sign commit (bash ../scripts/sign_commit) - AFTER all patches are applied
-    sign_script = "#{repo_root}/scripts/sign_commit"
+    # Step 3: Sign commit (bash ../sign_commit) - AFTER all patches are applied
+    sign_script = "#{repo_root}/sign_commit"
+    ohai "DEBUG: Looking for sign_commit script at: #{sign_script}"
+    ohai "DEBUG: repo_root is: #{repo_root}"
+    ohai "DEBUG: File exists? #{File.exist?(sign_script)}"
     if File.exist?(sign_script)
-      ohai "Step 3: Running sign_commit script AFTER all patches (upstream sequence: bash ../scripts/sign_commit)"
+      ohai "Step 3: Running sign_commit script AFTER all patches (upstream sequence: bash ../sign_commit)"
       # The sign_commit script embeds git commit info from the qemu-3dfx repository
       # and ensures proper signature matching between QEMU and 3dfx drivers
       
       # Use existing commit ID from environment if set, otherwise get from git
-      # Priority: QEMU_3DFX_COMMIT (manual override) > git auto-detection
-      commit_id = ENV["QEMU_3DFX_COMMIT"] || `cd #{repo_root} && git rev-parse --short HEAD`.strip
-      
-      ohai "Using commit ID: #{commit_id}"
+      # Priority: QEMU_3DFX_COMMIT (manual override) > origin/homebrew-qemu-3dfx branch
+      if ENV["QEMU_3DFX_COMMIT"]
+        commit_id = ENV["QEMU_3DFX_COMMIT"]
+        ohai "Using commit ID from QEMU_3DFX_COMMIT: #{commit_id}"
+      else
+        # Use robust git command execution with proper error handling
+        begin
+          commit_id = `cd "#{repo_root}" && git rev-parse --short remotes/origin/homebrew-qemu-3dfx 2>/dev/null`.strip
+          if commit_id.empty? || $?.exitstatus != 0
+            # Fallback to local branch if remote doesn't work
+            commit_id = `cd "#{repo_root}" && git rev-parse --short homebrew-qemu-3dfx 2>/dev/null`.strip
+          end
+          if commit_id.empty? || $?.exitstatus != 0
+            # Final fallback to HEAD
+            commit_id = `cd "#{repo_root}" && git rev-parse --short HEAD 2>/dev/null`.strip
+          end
+          ohai "Using commit ID from git repository: #{commit_id}"
+        rescue => e
+          ohai "Warning: Could not determine git commit: #{e.message}"
+          commit_id = "unknown"
+        end
+      end
       
       # CRITICAL: Set QEMU_3DFX_COMMIT to ensure both sign_commit and post_install qemu.sign use the same hash
       ENV["QEMU_3DFX_COMMIT"] = commit_id
       
-      # Run sign_commit matching upstream: bash ../scripts/sign_commit
+      # Store it persistently for post_install phase
+      begin
+        (buildpath/"QEMU_3DFX_COMMIT_ID").write(commit_id)
+        ohai "Stored commit ID #{commit_id} for post_install phase"
+      rescue => e
+        ohai "Warning: Could not store commit ID: #{e.message}"
+      end
+      
+      # Run sign_commit matching upstream: bash ../sign_commit
       system "bash", sign_script, "-git=#{repo_root}", "-commit=#{commit_id}", "HEAD"
     else
       ohai "Warning: sign_commit script not found - 3dfx drivers may not load properly"
@@ -602,8 +770,8 @@ class Qemu3dfx < Formula
   end
 
   def copy_3dfx_wrapper_sources
-    # Find repository root and use relative paths
-    repo_root = find_repo_root(__dir__)
+    # Use the repository root that was set at the beginning of install
+    repo_root = ENV["QEMU_3DFX_REPO_ROOT"]
     return unless repo_root
     
     wrappers_dir = "#{repo_root}/wrappers"
@@ -776,13 +944,13 @@ class Qemu3dfx < Formula
     sign_dir = "#{prefix}/sign"
     mkdir_p sign_dir
     
-    # Find repository root and use relative paths
-    repo_root = find_repo_root(__dir__)
+    # Use the repository root that was set at the beginning of install
+    repo_root = ENV["QEMU_3DFX_REPO_ROOT"]
     if repo_root
       rsrc_file = "#{repo_root}/qemu.rsrc"
       sign_file = "#{repo_root}/qemu.sign"
       sign_binary_script = "#{repo_root}/sign_binary.sh"
-      sign_commit_script = "#{repo_root}/scripts/sign_commit"
+      sign_commit_script = "#{repo_root}/sign_commit"
       
       if File.exist?(rsrc_file)
         cp rsrc_file, "#{sign_dir}/qemu.rsrc"
@@ -814,68 +982,36 @@ class Qemu3dfx < Formula
     # Look for key files that indicate we're in the qemu-3dfx repository root
     key_files = ["00-qemu100x-mesa-glide.patch", "qemu-0", "virgil3d"]
     
-    # First, try to find the repository root by walking up from start_dir
-    current_dir = File.expand_path(start_dir)
+    # Build list of locations to check in priority order
+    locations_to_check = []
     
-    # Walk up the directory tree looking for the repository root
-    15.times do  # Increased limit for deeper directory structures
-      if key_files.all? { |file| File.exist?(File.join(current_dir, file)) }
-        ohai "Repository root found: #{current_dir}"
-        return current_dir
-      end
-      
+    # 1. Environment variables (highest priority)
+    locations_to_check << ENV["GITHUB_WORKSPACE"] if ENV["GITHUB_WORKSPACE"]
+    locations_to_check << File.join(ENV["RUNNER_WORKSPACE"], "qemu-3dfx-macos") if ENV["RUNNER_WORKSPACE"]
+    locations_to_check << ENV["QEMU_3DFX_REPO_ROOT"] if ENV["QEMU_3DFX_REPO_ROOT"]
+    
+    # 2. Walk up from start_dir
+    current_dir = File.expand_path(start_dir)
+    15.times do
+      locations_to_check << current_dir
       parent_dir = File.dirname(current_dir)
       break if parent_dir == current_dir  # Reached filesystem root
       current_dir = parent_dir
     end
     
-    # If not found by walking up, try common locations where the repo might be
-    potential_locations = [
-      # GitHub Actions workspace (highest priority)
-      ENV["GITHUB_WORKSPACE"],
-      ENV["RUNNER_WORKSPACE"] ? File.join(ENV["RUNNER_WORKSPACE"], "qemu-3dfx-macos") : nil,
-      "/Users/#{ENV["USER"]}/work/qemu-3dfx-macos/qemu-3dfx-macos",  # GitHub Actions path
-      # When running from Homebrew tap, look for the original repo
-      ENV["HOMEBREW_CACHE"],
-      "/tmp",
-      File.expand_path("~"),
-      "/Users/#{ENV["USER"]}",
-      # Look in common development directories
-      "/Users/#{ENV["USER"]}/qemu-3dfx-1",
-      "/Users/#{ENV["USER"]}/qemu-3dfx-macos", 
-      "/Users/#{ENV["USER"]}/Documents/qemu-3dfx-1",
-      "/Users/#{ENV["USER"]}/Downloads/qemu-3dfx-1"
-    ].compact
-    
-    potential_locations.each do |base_dir|
-      next unless base_dir && Dir.exist?(base_dir)
+    # Check each location
+    locations_to_check.uniq.each do |location|
+      next unless location && Dir.exist?(location)
       
-      # First check if the base directory itself is the repository root
-      if key_files.all? { |file| File.exist?(File.join(base_dir, file)) }
-        ohai "Repository root found at location: #{base_dir}"
-        return base_dir
+      if key_files.all? { |file| File.exist?(File.join(location, file)) }
+        ohai "Repository root found: #{location}"
+        return location
       end
-      
-      # Look for qemu-3dfx directories in this location
-      Dir.glob("#{base_dir}/*qemu-3dfx*").each do |candidate|
-        next unless File.directory?(candidate)
-        
-        if key_files.all? { |file| File.exist?(File.join(candidate, file)) }
-          ohai "Repository root found in subdirectory: #{candidate}"
-          return candidate
-        end
-      end
-    end
-    
-    # Last resort: check if we can find files relative to the current working directory
-    if Dir.pwd != start_dir
-      cwd_check = find_repo_root(Dir.pwd)
-      return cwd_check if cwd_check
     end
     
     ohai "Warning: Repository root not found. Searched from #{start_dir}"
     ohai "Looking for files: #{key_files.join(', ')}"
-    ohai "Checked locations: #{potential_locations.join(', ')}"
+    ohai "Checked #{locations_to_check.length} locations"
     nil  # Repository root not found
   end
 

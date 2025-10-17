@@ -20,12 +20,6 @@ cd qemu-3dfx-macos
 
 # Run the comprehensive setup and build script
 ./homebrew-qemu3dfx/test-formula.sh
-
-# Sign the QEMU binary for proper macOS execution (recommended)
-cd $(brew --prefix qemu-3dfx)/sign
-export QEMU_3DFX_COMMIT=$(cd ~/qemu-3dfx-macos && git rev-parse --short HEAD)
-sudo /usr/bin/xattr -c ../bin/qemu-system-* ../bin/qemu-* ../lib/*.dylib
-sudo -E bash ./qemu.sign
 ```
 
 The test script automatically handles:
@@ -35,19 +29,11 @@ The test script automatically handles:
 - QEMU 10.0.0 building with 3dfx and Virgl3D support
 - Installation verification and testing
 
-> **That's it!** The script handles everything needed on fresh systems.
+> **Almost done!** After the build completes successfully, proceed to the signing step below.
 
-## System Requirements
+## Final Step: Binary Signing (Required)
 
-- **macOS** 10.15+ (supports both Intel and Apple Silicon)
-- **At least 4GB free disk space** for building QEMU
-- **Internet connection** for downloading source code and dependencies
-
-> **Note**: All dependencies and prerequisites are automatically installed by the test script.
-
-## Binary Signing (Recommended)
-
-After installation, sign the QEMU binary for proper macOS execution:
+After the build is complete, sign the QEMU binary for proper macOS execution:
 
 ```bash
 # Sign the binary (removes security warnings and enables proper execution)
@@ -55,36 +41,58 @@ cd $(brew --prefix qemu-3dfx)/sign
 export QEMU_3DFX_COMMIT=$(cd ~/qemu-3dfx-macos && git rev-parse --short HEAD)
 sudo /usr/bin/xattr -c ../bin/qemu-system-* ../bin/qemu-* ../lib/*.dylib
 sudo -E bash ./qemu.sign
-
-# The script will:
-# 1. Create a self-signed certificate if needed
-# 2. Sign all QEMU binaries and Glide libraries
-# 3. Add proper entitlements and icons
-# 4. Verify signatures
 ```
 
-> **Why sign?** macOS requires signed binaries for hypervisor access and removes security warnings.
+> **That's it!** Your QEMU 3dfx installation is now complete and ready to use.
 
-### Custom Commit Hash (Advanced)
+## System Requirements
 
-For build reproducibility or custom versioning, you can specify a custom commit hash:
+- **macOS** 10.15+ 
+- **At least 4GB free disk space** for building QEMU
+- **Internet connection** for downloading source code and dependencies
 
+> **Note**: All dependencies and prerequisites are automatically installed by the test script.
+
+## Custom Commit Hash (Advanced)
+
+For build reproducibility or custom versioning, you can specify a custom commit hash using multiple methods:
+
+#### Method 1: Build-time Custom Commit
 ```bash
-# Method 1: Set environment variable before building
-export QEMU_3DFX_COMMIT=abc1234
+# Create temp file with desired commit hash (bypasses Homebrew environment sanitization)
+echo '23323f3' > /tmp/qemu_3dfx_commit_override
+
+# Use with test script:
 ./homebrew-qemu3dfx/test-formula.sh
 
-# Method 2: Manual signing with custom commit
+# Clean up after build
+rm /tmp/qemu_3dfx_commit_override
+```
+
+#### Method 2: Post-build Manual Signing
+```bash
+# After installation, sign with custom commit (this works for signing only)
 cd $(brew --prefix qemu-3dfx)/sign
-export QEMU_3DFX_COMMIT=abc1234
+export QEMU_3DFX_COMMIT=23323f3
 sudo -E bash ./qemu.sign
 ```
 
-**Commit Hash Priority:**
-1. `QEMU_3DFX_COMMIT` environment variable (manual override)
-2. Auto-detection from git repository
+**Commit Hash Priority (Build-time):**
+1. `/tmp/qemu_3dfx_commit_override` temporary file (only working method for builds)
+2. Build arguments (`--commit=abc1234`)
+3. Auto-detection from git repository (default: origin/homebrew-qemu-3dfx branch)
 
-> **Note**: The formula ensures both build-time `sign_commit` and post-install `qemu.sign` scripts use the same commit hash for signature consistency.
+**Why the temp file method:**
+- **Homebrew limitation**: Homebrew sanitizes environment variables during builds
+- **File system bypass**: The temp file method bypasses environment sanitization entirely
+- **Test script compatibility**: Works with the `test-formula.sh` which handles Homebrew tap requirements
+
+**Verification:**
+```bash
+# Check that your custom commit was used
+$(brew --prefix qemu-3dfx)/bin/qemu-system-x86_64 --version
+# Should show: featuring qemu-3dfx@23323f3 (your custom commit)
+```
 
 ## Dependencies
 
@@ -92,7 +100,7 @@ The test script and Homebrew formula automatically install these dependencies:
 
 **Core Build Tools:**
 - `cmake`, `meson`, `ninja`, `pkg-config`
-- `python@3.12`
+- `python@3.14`
 
 **QEMU Core Dependencies:**
 - `capstone`, `glib`, `gettext`, `gnutls`
@@ -218,9 +226,6 @@ qemu-system-x86_64 \
 # Check QEMU 3dfx signature
 qemu-system-x86_64 --version | grep "qemu-3dfx@"
 
-# Test 3dfx device support
-qemu-system-i386 -device help | grep 3dfx
-
 # Check installed location
 brew --prefix qemu-3dfx
 ```
@@ -293,26 +298,6 @@ This Homebrew formula is based on KJ's excellent qemu-3dfx project. For issues w
 - **3dfx emulation**: Report to the original [kjliew/qemu-3dfx](https://github.com/kjliew/qemu-3dfx)
 - **QEMU core**: Report to [QEMU project](https://www.qemu.org/)
 - **Homebrew issues**: Check [Homebrew troubleshooting](https://docs.brew.sh/Troubleshooting)
-
-### Development
-
-```bash
-# Clone the homebrew-qemu-3dfx branch for development
-git clone -b homebrew-qemu-3dfx https://github.com/startergo/qemu-3dfx-macos.git
-
-# Test local formula changes
-brew install --build-from-source ./homebrew-qemu3dfx/Formula/qemu-3dfx.rb
-
-# Debug with verbose output
-./homebrew-qemu3dfx/test-formula.sh
-
-# Test with custom commit hash
-export QEMU_3DFX_COMMIT=abc1234
-./homebrew-qemu3dfx/test-formula.sh
-
-# Formula validation
-brew audit --strict ./homebrew-qemu3dfx/Formula/qemu-3dfx.rb
-```
 
 ### Repository Structure
 
