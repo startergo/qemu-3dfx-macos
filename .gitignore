@@ -1,0 +1,111 @@
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+build/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*.dll
+*.deb
+*.rpm
+*.pkg
+*.dmg
+
+# QEMU build artifacts
+qemu-*/
+*.tar.xz
+*.tar.gz
+*.zip
+
+# Homebrew build artifacts
+*.bottle.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Compiled binaries
+qemu-system-*
+qemu-img
+qemu-io
+qemu-nbd
+
+# Package files
+*.tar
+*.gz
+*.bz2
+*.xz
+*.lzma
+
+# Git submodule artifacts (but keep .gitmodules)
+# Note: We want to keep qemu-3dfx-upstream submodule
+
+# Signing artifacts (keep the actual files but ignore temporary ones)
+*.sign.tmp
+*.rsrc.tmp
+
+# Test artifacts
+test-results/
+coverage/
+
+# Node.js (if any JavaScript tooling is added)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local configuration files
+.env
+.env.local
+config.local.*
+
+# Cache directories
+.cache/
+*.cache
+
+# Documentation build artifacts
+docs/_build/
+site/
+
+# Patches that are temporary or generated
+*.patch.tmp
+*.diff.tmp
