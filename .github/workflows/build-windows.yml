@@ -1,0 +1,570 @@
+name: Build QEMU-3dfx for Windows
+
+# Required permissions for creating releases
+permissions:
+  contents: write
+  packages: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create GitHub release'
+        required: false
+        default: false
+        type: boolean
+      apply_experimental:
+        description: 'Apply experimental patches (SDL Clipboard) - EXPERIMENTAL'
+        required: false
+        default: true
+        type: boolean
+      commit_id:
+        description: 'Override commit ID for signing (leave empty for auto-detection)'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  windows-build:
+    runs-on: windows-latest  # Updated from windows-2019 (retired as of 2025-06-30)
+    timeout-minutes: 180  # 3 hours timeout for Windows builds
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - msystem: 'MINGW64'
+            pkg_prefix: 'mingw-w64-x86_64'
+            artifact_suffix: 'mingw64'
+          - msystem: 'UCRT64'
+            pkg_prefix: 'mingw-w64-ucrt-x86_64'
+            artifact_suffix: 'ucrt64'
+    env:
+      QEMU_VERSION: '10.0.2'
+      PATCH_FILE: '00-qemu100x-mesa-glide.patch'
+      APPLY_EXPERIMENTAL: ${{ github.event.inputs.apply_experimental == 'true' }}
+      COMMIT_ID_OVERRIDE: ${{ github.event.inputs.commit_id }}
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: >-
+            base
+            base-devel
+            dos2unix
+            gcc
+            git
+            make
+            ninja
+            patch
+            python
+            rsync
+            wget
+            xorriso
+            zstd
+            ${{ matrix.pkg_prefix }}-python
+            ${{ matrix.pkg_prefix }}-python-distlib
+            ${{ matrix.pkg_prefix }}-python-setuptools
+            ${{ matrix.pkg_prefix }}-python-sphinx
+            ${{ matrix.pkg_prefix }}-python-sphinx_rtd_theme
+            ${{ matrix.pkg_prefix }}-angleproject
+            ${{ matrix.pkg_prefix }}-autotools
+            ${{ matrix.pkg_prefix }}-binutils
+            ${{ matrix.pkg_prefix }}-toolchain
+            ${{ matrix.pkg_prefix }}-tools
+            ${{ matrix.pkg_prefix }}-7zip
+            ${{ matrix.pkg_prefix }}-cairo
+            ${{ matrix.pkg_prefix }}-capstone
+            ${{ matrix.pkg_prefix }}-curl
+            ${{ matrix.pkg_prefix }}-cyrus-sasl
+            ${{ matrix.pkg_prefix }}-dtc
+            ${{ matrix.pkg_prefix }}-expat
+            ${{ matrix.pkg_prefix }}-fontconfig
+            ${{ matrix.pkg_prefix }}-freetype
+            ${{ matrix.pkg_prefix }}-gcc
+            ${{ matrix.pkg_prefix }}-gdk-pixbuf2
+            ${{ matrix.pkg_prefix }}-gettext-runtime
+            ${{ matrix.pkg_prefix }}-gettext-tools
+            ${{ matrix.pkg_prefix }}-glib2
+            ${{ matrix.pkg_prefix }}-gnutls
+            ${{ matrix.pkg_prefix }}-gst-libav
+            ${{ matrix.pkg_prefix }}-gst-plugins-ugly
+            ${{ matrix.pkg_prefix }}-gtk3
+            ${{ matrix.pkg_prefix }}-gtk-vnc
+            ${{ matrix.pkg_prefix }}-jack2
+            ${{ matrix.pkg_prefix }}-libcacard
+            ${{ matrix.pkg_prefix }}-libgcrypt
+            ${{ matrix.pkg_prefix }}-libepoxy
+            ${{ matrix.pkg_prefix }}-libnfs
+            ${{ matrix.pkg_prefix }}-libpng
+            ${{ matrix.pkg_prefix }}-libslirp
+            ${{ matrix.pkg_prefix }}-libssh
+            ${{ matrix.pkg_prefix }}-libssh2
+            ${{ matrix.pkg_prefix }}-libtasn1
+            ${{ matrix.pkg_prefix }}-libusb
+            ${{ matrix.pkg_prefix }}-libxml2
+            ${{ matrix.pkg_prefix }}-lz4
+            ${{ matrix.pkg_prefix }}-lzo2
+            ${{ matrix.pkg_prefix }}-meson
+            ${{ matrix.pkg_prefix }}-msitools
+            ${{ matrix.pkg_prefix }}-ncurses
+            ${{ matrix.pkg_prefix }}-nettle
+            ${{ matrix.pkg_prefix }}-ninja
+            ${{ matrix.pkg_prefix }}-pcre2
+            ${{ matrix.pkg_prefix }}-pixman
+            ${{ matrix.pkg_prefix }}-pkgconf
+            ${{ matrix.pkg_prefix }}-pulseaudio
+            ${{ matrix.pkg_prefix }}-SDL2
+            ${{ matrix.pkg_prefix }}-SDL2_image
+            ${{ matrix.pkg_prefix }}-SDL2_sound
+            ${{ matrix.pkg_prefix }}-snappy
+            ${{ matrix.pkg_prefix }}-spice
+            ${{ matrix.pkg_prefix }}-spice-gtk
+            ${{ matrix.pkg_prefix }}-spice-protocol
+            ${{ matrix.pkg_prefix }}-usbredir
+            ${{ matrix.pkg_prefix }}-virglrenderer
+            ${{ matrix.pkg_prefix }}-xz
+            ${{ matrix.pkg_prefix }}-zlib
+            ${{ matrix.pkg_prefix }}-zstd
+            ${{ matrix.pkg_prefix }}-rust
+
+      - name: Download and extract QEMU source
+        shell: msys2 {0}
+        run: |
+          echo "Downloading QEMU source version ${{ env.QEMU_VERSION }}"
+          wget -q --show-progress https://download.qemu.org/qemu-${{ env.QEMU_VERSION }}.tar.xz
+          echo "Extracting QEMU source (Windows-compatible extraction)"
+          # Extract with error suppression for symlink issues on Windows
+          tar -xf qemu-${{ env.QEMU_VERSION }}.tar.xz 2>/dev/null || {
+            echo "Standard extraction had issues, continuing anyway..."
+            # Verify we have the main source directory
+            if [[ -d "qemu-${{ env.QEMU_VERSION }}" ]]; then
+              echo "QEMU source directory exists, extraction was mostly successful"
+            else
+              echo "Error: QEMU source directory not found"
+              exit 1
+            fi
+          }
+          echo "QEMU source extracted successfully"
+          df -h  # Show disk space after extraction
+
+      - name: Apply patches and prepare source
+        shell: msys2 {0}
+        run: |
+          echo "🚨🚨🚨 WINDOWS WORKFLOW DEBUG START - EXPERIMENTAL PATCHES TROUBLESHOOTING 🚨🚨🚨"
+          echo "This debug output should be visible in GitHub Actions logs!"
+          echo "If you see this message, the Windows workflow debugging is working."
+          echo ""
+          
+          echo "Adding 3dfx and mesa files to QEMU source"
+          rsync -rv qemu-0/hw/3dfx qemu-1/hw/mesa qemu-${{ env.QEMU_VERSION }}/hw/
+          cd qemu-${{ env.QEMU_VERSION }}
+          
+          echo "Applying main QEMU-3dfx patch: ${{ env.PATCH_FILE }}"
+          patch -p0 -i ../${{ env.PATCH_FILE }}
+          
+          echo "=== DEBUGGING WINDOWS WORKFLOW INPUTS ==="
+          echo "GitHub event name: ${GITHUB_EVENT_NAME}"
+          echo "Raw github.event.inputs.apply_experimental: '${{ github.event.inputs.apply_experimental }}'"
+          echo "Environment APPLY_EXPERIMENTAL: '${APPLY_EXPERIMENTAL}'"
+          
+          # Store the input value for easier handling
+          WORKFLOW_INPUT="${{ github.event.inputs.apply_experimental }}"
+          echo "Stored workflow input: '${WORKFLOW_INPUT}'"
+          echo "Length of input: ${#WORKFLOW_INPUT}"
+          echo "Type check - comparing to 'true': [ '${WORKFLOW_INPUT}' = 'true' ]"
+          
+          # Handle GitHub Actions boolean inputs more robustly
+          # Note: Windows workflow has default=false, different from macOS
+          if [[ "${WORKFLOW_INPUT}" == "true" ]]; then
+            APPLY_EXPERIMENTAL_PATCHES="true"
+            echo "🧪 Experimental patches will be applied (workflow input = '${WORKFLOW_INPUT}')"
+            echo "✅ CONDITION MET: apply_experimental is true"
+          else
+            APPLY_EXPERIMENTAL_PATCHES="false"
+            echo "📦 Standard build without experimental patches (workflow input = '${WORKFLOW_INPUT}' or default=false)"
+            echo "❌ CONDITION NOT MET: apply_experimental is '${WORKFLOW_INPUT}' (not 'true')"
+          fi
+          
+          echo "🚨🚨🚨 FINAL RESULT FOR EXPERIMENTAL PATCHES (WINDOWS) 🚨🚨🚨"
+          echo "APPLY_EXPERIMENTAL_PATCHES = '${APPLY_EXPERIMENTAL_PATCHES}'"
+          
+          if [[ "${APPLY_EXPERIMENTAL_PATCHES}" == "true" ]]; then
+            echo "🧪 Applying experimental SDL Clipboard patch for Windows"
+            
+            # Apply the standardized SDL clipboard patch
+            SDL_CLIPBOARD_PATCH="../patches/qemu-10.0.0-sdl-clipboard-post-3dfx-corrected-final.patch"
+            
+            if [[ -f "$SDL_CLIPBOARD_PATCH" ]]; then
+              echo "🎯 Applying SDL Clipboard patch: $SDL_CLIPBOARD_PATCH"
+              
+              if patch -p1 -i "$SDL_CLIPBOARD_PATCH"; then
+                echo "✅ SDL Clipboard patch applied successfully: $(basename $SDL_CLIPBOARD_PATCH)"
+              else
+                echo "❌ Failed to apply SDL Clipboard patch: $SDL_CLIPBOARD_PATCH"
+                echo "Build will continue without experimental features"
+                exit 1
+              fi
+            else
+              echo "❌ SDL Clipboard patch not found: $SDL_CLIPBOARD_PATCH"
+              echo "Build will continue without experimental features"
+              exit 1
+            fi
+          else
+            echo "📦 Skipping experimental patches (apply_experimental = false or not set)"
+          fi
+          
+          echo "🚨🚨🚨 END DEBUG SECTION (WINDOWS) 🚨🚨🚨"
+          echo ""
+          
+          echo "Setting up commit ID for signing"
+          if [[ -n "${{ github.event.inputs.commit_id }}" ]]; then
+            echo "Using custom commit ID: ${{ github.event.inputs.commit_id }}"
+            export COMMIT_ID_OVERRIDE="${{ github.event.inputs.commit_id }}"
+          else
+            echo "Using auto-detected commit ID from git"
+            export COMMIT_ID_OVERRIDE=""
+          fi
+          
+          echo "Signing commit ID"
+          bash ../scripts/sign_commit
+          echo "Build preparation completed"
+
+      - name: Create build directory
+        run: mkdir -p build
+
+      - name: Configure QEMU build
+        working-directory: ./build
+        shell: msys2 {0}
+        run: |
+          echo "Configuring QEMU build for ${{ matrix.msystem }}"
+          ../qemu-${{ env.QEMU_VERSION }}/configure \
+            --target-list="x86_64-softmmu,i386-softmmu" \
+            --prefix=$(pwd)/../install_dir \
+            --extra-cflags="-O2" \
+            --disable-rust
+          echo "Configuration completed"
+
+      - name: Build QEMU
+        working-directory: ./build
+        shell: msys2 {0}
+        run: |
+          echo "Building QEMU with limited parallel jobs for CI stability"
+          make -j2
+          echo "QEMU build completed"
+
+      - name: Install QEMU build
+        working-directory: ./build
+        shell: msys2 {0}
+        run: |
+          echo "Installing QEMU to output directory"
+          make install
+          cd ../install_dir
+          
+          echo "Setting up commit ID for binary signing"
+          if [[ -n "${{ github.event.inputs.commit_id }}" ]]; then
+            echo "Using custom commit ID for binary signing: ${{ github.event.inputs.commit_id }}"
+            export COMMIT_ID_OVERRIDE="${{ github.event.inputs.commit_id }}"
+          else
+            echo "Using auto-detected commit ID for binary signing"
+            export COMMIT_ID_OVERRIDE=""
+          fi
+          
+          echo "Signing binaries"
+          bash ../scripts/sign_binary.sh
+          
+          echo "Creating version info"
+          echo "QEMU-3dfx (Windows Build)" > version.txt
+          echo "=================================================" >> version.txt
+          echo "GitHub Actions Artifact Build" >> version.txt
+          echo "Repository: startergo/qemu-3dfx-macos" >> version.txt
+          echo "Branch: ${{ github.ref_name }}" >> version.txt
+          echo "Version: ${{ env.QEMU_VERSION }}" >> version.txt
+          echo "Build System: ${{ matrix.msystem }}" >> version.txt
+          echo "Build Date: $(date)" >> version.txt
+          echo "Commit: ${{ github.sha }}" >> version.txt
+          echo "Custom Commit ID: ${{ github.event.inputs.commit_id || 'auto-detected' }}" >> version.txt
+          echo "Experimental patches: ${{ github.event.inputs.apply_experimental || 'true' }}" >> version.txt
+          echo "SDL Clipboard patch: ${{ github.event.inputs.apply_experimental == 'true' && 'APPLIED' || 'NOT APPLIED' }}" >> version.txt
+          unix2dos version.txt
+          echo "QEMU installation completed at $(date)"
+
+      - name: Build Windows guest wrappers
+        shell: msys2 {0}
+        continue-on-error: true
+        run: |
+          echo "Building Windows guest wrappers"
+          
+          # Check if wrapper build components exist
+          if [[ ! -d "wrappers/3dfx" ]]; then
+            echo "3dfx wrapper directory not found, skipping wrapper build"
+            exit 0
+          fi
+          
+          echo "Building 3dfx wrappers"
+          cd wrappers/3dfx
+          if [[ -f "../../scripts/conf_wrapper" ]]; then
+            mkdir -p build && cd build
+            bash ../../../scripts/conf_wrapper || true
+            make || true
+            make clean || true
+            echo "3dfx wrappers built successfully"
+          else
+            echo "conf_wrapper script not found, skipping 3dfx wrapper build"
+          fi
+          
+          echo "Building Mesa wrappers"
+          cd ../../mesa
+          if [[ -d "../mesa" ]]; then
+            mkdir -p build && cd build
+            bash ../../../scripts/conf_wrapper || true
+            make || true
+            make clean || true
+            echo "Mesa wrappers built successfully"
+          else
+            echo "Mesa wrapper directory not found, skipping Mesa wrapper build"
+          fi
+
+      - name: Package wrappers
+        shell: msys2 {0}
+        continue-on-error: true
+        working-directory: ./wrappers
+        run: |
+          echo "Packaging wrappers"
+          
+          # Create wrapper structure if components exist
+          if [[ -d "3dfx" || -d "mesa" ]]; then
+            mkdir -p iso/wrapfx iso/wrapgl
+            
+            # Copy 3dfx wrapper files if they exist
+            if [[ -d "3dfx/build" ]]; then
+              cp -f 3dfx/build/*.{vxd,sys,dll,dxe,ovl,exe} iso/wrapfx/ 2>/dev/null || true
+            fi
+            
+            # Copy Mesa wrapper files if they exist
+            if [[ -d "mesa/build" ]]; then
+              cp -f mesa/build/*.{dll,exe} iso/wrapgl/ 2>/dev/null || true
+            fi
+            
+            # Copy additional files if they exist
+            cd iso
+            [[ -f ../texts/readme.txt ]] && cp ../texts/readme.txt readme.txt
+            [[ -f ../../LICENSE ]] && cp ../../LICENSE license.txt
+            [[ -f autorun.inf ]] && unix2dos autorun.inf
+            [[ -f open.bat ]] && unix2dos open.bat
+            [[ -f readme.txt ]] && unix2dos readme.txt
+            [[ -f license.txt ]] && unix2dos license.txt
+            
+            # Sign wrapper binaries using Windows-specific script
+            if [[ -n "${{ github.event.inputs.commit_id }}" ]]; then
+              echo "Using custom commit ID for wrapper signing: ${{ github.event.inputs.commit_id }}"
+              export COMMIT_ID_OVERRIDE="${{ github.event.inputs.commit_id }}"
+            else
+              echo "Using auto-detected commit ID for wrapper signing"
+              export COMMIT_ID_OVERRIDE=""
+            fi
+            bash ../../scripts/sign_binary.sh
+            
+            cd ..
+            echo "Creating wrapper ISO"
+            xorriso -as mkisofs -JR -V "QEMU3DFX-WRAPPERS-$(git log --format="%h" -n 1)" -o wrappers.iso iso
+            echo "Wrapper packaging completed at $(date)"
+          else
+            echo "No wrapper components found, skipping wrapper packaging"
+          fi
+
+      - name: Upload QEMU binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-3dfx-windows-${{ matrix.artifact_suffix }}-${{ env.QEMU_VERSION }}-${{ github.run_number }}
+          path: ./install_dir
+          retention-days: 30
+
+      - name: Upload wrapper disk
+        uses: actions/upload-artifact@v4
+        if: hashFiles('./wrappers/wrappers.iso') != ''
+        with:
+          name: qemu-3dfx-wrappers-${{ matrix.artifact_suffix }}-${{ github.run_number }}
+          path: ./wrappers/wrappers.iso
+          retention-days: 30
+
+      - name: Build summary
+        shell: msys2 {0}
+        run: |
+          echo "=== Build Summary for ${{ matrix.msystem }} ==="
+          echo "QEMU Version: ${{ env.QEMU_VERSION }}"
+          echo "Main Patch Applied: ${{ env.PATCH_FILE }}"
+          echo "Experimental patches requested: ${{ github.event.inputs.apply_experimental || 'true' }}"
+          echo "SDL Clipboard patch: ${{ github.event.inputs.apply_experimental == 'true' && 'APPLIED' || 'NOT APPLIED' }}"
+          echo "Custom Commit ID: ${{ github.event.inputs.commit_id || 'auto-detected' }}"
+          echo "Build System: ${{ matrix.msystem }}"
+          echo "Package Prefix: ${{ matrix.pkg_prefix }}"
+          echo "Artifact Suffix: ${{ matrix.artifact_suffix }}"
+          echo "Build completed at: $(date)"
+          
+          if [[ -d "install_dir" ]]; then
+            echo ""
+            echo "=== QEMU binaries built ==="
+            find install_dir -name "qemu-*.exe" -exec basename {} \;
+          fi
+          
+          if [[ -f "wrappers/wrappers.iso" ]]; then
+            echo ""
+            echo "=== Wrapper ISO created ==="
+            echo "Wrapper ISO size: $(du -h wrappers/wrappers.iso | cut -f1)"
+          fi
+          
+          echo ""
+          echo "=== Patch Status Summary ==="
+          echo "✅ Main 3dfx/Mesa patch: APPLIED (${{ env.PATCH_FILE }})"
+          if [[ "${{ github.event.inputs.apply_experimental }}" == "true" ]]; then
+            echo "🧪 SDL Clipboard patch: APPLIED (experimental)"
+          else
+            echo "📦 SDL Clipboard patch: NOT APPLIED (standard build)"
+          fi
+
+  create-windows-release:
+    name: Create Windows Release
+    runs-on: windows-latest
+    needs: windows-build
+    if: github.event.inputs.create_release == 'true'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+        
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: all-artifacts/
+        
+    - name: Prepare release assets
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path release-assets
+        
+        # Collect all Windows artifacts - both individual files and directories
+        Write-Host "=== Scanning for artifacts ==="
+        Get-ChildItem -Path all-artifacts -Recurse | Format-Table Name, PSIsContainer, Length
+        
+        # Copy ISO files directly
+        Get-ChildItem -Path all-artifacts -Recurse -Include "*.iso" | Copy-Item -Destination release-assets/
+        
+        # Package directory artifacts as ZIP files
+        Get-ChildItem -Path all-artifacts -Directory | ForEach-Object {
+          $dirName = $_.Name
+          $zipName = "$dirName.zip"
+          Write-Host "Packaging $dirName as $zipName"
+          Compress-Archive -Path "$($_.FullName)\*" -DestinationPath "release-assets\$zipName" -Force
+        }
+        
+        Write-Host "=== Windows release assets prepared ==="
+        Get-ChildItem release-assets/ | Format-Table Name, Length
+        
+        # Verify we have at least one artifact
+        $artifactCount = (Get-ChildItem release-assets/).Count
+        if ($artifactCount -eq 0) {
+          Write-Host "❌ No artifacts found for Windows release!"
+          exit 1
+        } else {
+          Write-Host "✅ Found $artifactCount artifacts for Windows release"
+        }
+        
+    - name: Generate Windows release notes
+      shell: pwsh
+      run: |
+        $releaseTag = "windows-v$(Get-Date -Format 'yyyyMMdd')-$env:GITHUB_RUN_NUMBER"
+        $qemuVersion = "10.0.2"  # Match the QEMU_VERSION from env
+        
+        # Create release notes content
+        $content = @()
+        $content += "# QEMU 3dfx Windows Build $releaseTag"
+        $content += ""
+        $content += "This release includes QEMU $qemuVersion with 3dfx Glide and Mesa GL pass-through support for Windows."
+        $content += ""
+        $content += "## Build Information"
+        $content += "- **Build Date**: $(Get-Date -Format 'yyyy-MM-dd')"
+        $content += "- **QEMU Version**: $qemuVersion"
+        $content += "- **Run Number**: $env:GITHUB_RUN_NUMBER"
+        $content += "- **Commit**: $env:GITHUB_SHA"
+        $content += "- **Custom Commit ID**: ${{ github.event.inputs.commit_id || 'auto-detected' }}"
+        $content += ""
+        $content += "## Supported Windows Builds"
+        $content += "- **MINGW64**: Standard MinGW-w64 x86_64 build"
+        $content += "- **UCRT64**: Universal C Runtime x86_64 build (recommended for Windows 10+)"
+        $content += ""
+        $content += "## Installation Instructions"
+        $content += ""
+        $content += "1. Download the appropriate build for your system"
+        $content += "2. Extract the archive to your desired location"
+        $content += "3. The binaries will be in the main directory"
+        $content += "4. Wrapper ISO (if available) contains guest OS drivers and utilities"
+        $content += ""
+        $content += "## Package Contents"
+        $content += ""
+        $content += "Each Windows build includes:"
+        $content += "- QEMU Binaries: qemu-system-i386.exe, qemu-system-x86_64.exe, qemu-img.exe"
+        $content += "- Version Info: build-timestamp.txt, version.txt with detailed build information"
+        $content += "- Wrapper ISO: Guest OS drivers and utilities (if built successfully)"
+        $content += ""
+        $content += "## Usage Examples"
+        $content += ""
+        $content += "### 3dfx Glide Support (DOS/Windows 9x)"
+        $content += '```batch'
+        $content += "qemu-system-i386.exe \"
+        $content += "  -machine pc-i440fx-2.1 \"
+        $content += "  -cpu pentium2 \"
+        $content += "  -m 128 \"
+        $content += "  -device 3dfx,voodoo=voodoo2 \"
+        $content += "  -hda dos.img"
+        $content += '```'
+        $content += ""
+        $content += "### Modern Windows with Mesa OpenGL"
+        $content += '```batch'
+        $content += "qemu-system-x86_64.exe \"
+        $content += "  -machine pc \"
+        $content += "  -cpu host \"
+        $content += "  -m 2048 \"
+        $content += "  -device virtio-vga-gl \"
+        $content += "  -display sdl,gl=on \"
+        $content += "  -hda windows.img"
+        $content += '```'
+        $content += ""
+        $content += "## Experimental Features"
+        $experimentalInput = "${{ github.event.inputs.apply_experimental }}"
+        $experimentalStatus = if ($experimentalInput -eq 'true') { 'ENABLED' } else { 'DISABLED' }
+        $content += "- **SDL Clipboard**: $experimentalStatus"
+        $content += "  - Allows clipboard sharing between host and guest"
+        $content += ""
+        $content += "## Files in this Release"
+        
+        # Add file list
+        Get-ChildItem release-assets/ | ForEach-Object {
+          $size = [math]::Round($_.Length / 1MB, 2)
+          $content += "- $($_.Name) ($size MB)"
+        }
+
+        # Write to file
+        $content | Out-File -FilePath release-notes.md -Encoding UTF8
+        
+        # Store the release tag for the next step  
+        Write-Output "WINDOWS_RELEASE_TAG=$releaseTag" | Out-File -FilePath $env:GITHUB_ENV -Append
+        
+    - name: Create GitHub Release for Windows
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: qemu-3dfx-windows-${{ github.run_number }}
+        name: QEMU 3dfx Windows Build ${{ github.run_number }}
+        body_path: release-notes.md
+        files: release-assets/*
+        draft: false
+        prerelease: true
+        make_latest: false
+        fail_on_unmatched_files: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

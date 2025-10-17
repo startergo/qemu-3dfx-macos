@@ -7,7 +7,7 @@ class Qemu3dfx < Formula
   license "GPL-2.0-or-later"
   revision 1
 
-  head "https://github.com/startergo/qemu-3dfx-macos.git", branch: "master"
+  head "https://github.com/startergo/qemu-3dfx-macos.git", branch: "homebrew-qemu-3dfx"
 
   # Build dependencies
   depends_on "cmake" => :build
@@ -778,6 +778,8 @@ class Qemu3dfx < Formula
     if repo_root
       rsrc_file = "#{repo_root}/qemu.rsrc"
       sign_file = "#{repo_root}/qemu.sign"
+      sign_binary_script = "#{repo_root}/sign_binary.sh"
+      sign_commit_script = "#{repo_root}/scripts/sign_commit"
       
       if File.exist?(rsrc_file)
         cp rsrc_file, "#{sign_dir}/qemu.rsrc"
@@ -787,6 +789,18 @@ class Qemu3dfx < Formula
       if File.exist?(sign_file)
         cp sign_file, "#{sign_dir}/qemu.sign"
         ohai "Copied qemu.sign to #{sign_dir}/"
+      end
+      
+      if File.exist?(sign_binary_script)
+        cp sign_binary_script, "#{sign_dir}/sign_binary.sh"
+        chmod 0755, "#{sign_dir}/sign_binary.sh"
+        ohai "Copied sign_binary.sh to #{sign_dir}/"
+      end
+      
+      if File.exist?(sign_commit_script)
+        cp sign_commit_script, "#{sign_dir}/sign_commit"
+        chmod 0755, "#{sign_dir}/sign_commit"
+        ohai "Copied sign_commit to #{sign_dir}/"
       end
     else
       ohai "Warning: Could not locate repository root - signing files not copied"

@@ -1,0 +1,60 @@
+#!/bin/sh
+
+TOP=.
+GIT=`echo $@ | sed "s/\-git=\(.*\)/\1/;s/\ .*//"`
+MANUAL_COMMIT=`echo $@ | sed -n "s/.*\-commit=\([a-f0-9]*\).*/\1/p"`
+
+if [ -z $GIT ]; then GIT=.; else shift; fi;
+ARG=$@; if [ -z $ARG ]; then ARG=HEAD; fi
+
+# Use manual commit if specified, otherwise check environment variable, otherwise get from git
+if [ -n "$MANUAL_COMMIT" ]; then
+    COMMIT_ID="$MANUAL_COMMIT"
+    echo "Using manual commit ID: $MANUAL_COMMIT"
+elif [ -n "$COMMIT_ID_OVERRIDE" ]; then
+    COMMIT_ID="$COMMIT_ID_OVERRIDE"
+    echo "Using environment commit ID override: $COMMIT_ID_OVERRIDE"
+else
+    COMMIT_ID=`cd $GIT; git rev-parse --short $ARG`
+    echo "Using git commit ID: $COMMIT_ID"
+fi
+
+# Create signature in desired format: just commit_id- (time/date added by C macros)
+REV="${COMMIT_ID}-"
+
+# Export commit ID for binary signing  
+export QEMU_3DFX_COMMIT_ID="$COMMIT_ID"
+
+echo "Embedding signature: $(echo $REV | sed 's/-$//')"
+
+EMUS=$(basename $(dirname `find $TOP/include -name whpx.h`))
+CRYP=$(grep HASH_ALG $TOP/qapi/crypto.json | sed "s/.*\:\ //;s/.*\(HASH_[A-Z]*\).*/\1/")
+MODS=$(cat $TOP/target/i386/meson.build | tail -n 2 | head -n 1 | \
+    sed "s/.*:\ //;s/\}//")
+if [ -z "$REV" ] || [ -z "$EMUS" ] || [ -z "$MODS" ]; then exit 1; fi
+[ ! -z $CRYP ]  && sed -i -e "s/HASH_ALGO/$CRYP/" \
+    $TOP/hw/mesa/mesagl_pfn.h
+expr "$(grep base_init\) $TOP/include/qom/object.h)" : "\(.*\*klass,\ void\ \)" >/dev/null && \
+    sed -i -e "s/\*klass,\ const\ void/\*klass,\ void/;s/\"system\(\/address\-\)/\"exec\1/" \
+    $(grep -rl \*klass,\ const\ void $TOP/hw/{3dfx,mesa})
+sed -i -e "s/\"sys.*\//\"$EMUS\//" \
+    $(grep -rl \"sys.*\/ $TOP/hw/{3dfx,mesa})
+sed -i -e "s/i386.*_ss/$MODS/" \
+    $TOP/hw/{3dfx,mesa}/meson.build
+
+VLC=$(find $TOP -maxdepth 2 -name vl.c)
+SRC=" \
+    $TOP/hw/3dfx/g2xfuncs.h \
+    $TOP/hw/mesa/mglfuncs.h \
+    $VLC \
+" \
+
+echo $REV
+sed -i -e "s/\(rev_\[\).*\].*/\1\]\ =\ \"$REV\"/" $SRC
+
+# Also fix the hardcoded repository name in vl.c to use just "qemu-3dfx@"
+if [ -n "$VLC" ]; then
+    sed -i -e "s/qemu-3dfx-macos@/qemu-3dfx@/" $VLC
+fi
+
+grep "rev_\[" $SRC | sed "s/\(rev_\[\).*\].*/\1\]\ =\ \"$REV\"/"
