@@ -607,11 +607,25 @@ class Qemu3dfx < Formula
       # and ensures proper signature matching between QEMU and 3dfx drivers
       
       # Use existing commit ID from environment if set, otherwise get from git
-      # Priority: QEMU_3DFX_COMMIT (manual override) > origin/homebrew-qemu-3dfx branch
-      if ENV["QEMU_3DFX_COMMIT"]
-        commit_id = ENV["QEMU_3DFX_COMMIT"]
-        ohai "Using commit ID from QEMU_3DFX_COMMIT: #{commit_id}"
-      else
+      # Priority: temp file > QEMU_3DFX_COMMIT (manual override) > origin/homebrew-qemu-3dfx branch
+      commit_id = nil
+      
+      # Try temp file first (for GitHub Actions bypassing Homebrew sanitization)
+      if File.exist?("/tmp/qemu_3dfx_commit")
+        commit_id = File.read("/tmp/qemu_3dfx_commit").strip
+        ohai "Using commit ID from temp file: #{commit_id}" unless commit_id.empty?
+      end
+      
+      # Fallback to environment variable
+      if commit_id.nil? || commit_id.empty?
+        if ENV["QEMU_3DFX_COMMIT"]
+          commit_id = ENV["QEMU_3DFX_COMMIT"]
+          ohai "Using commit ID from QEMU_3DFX_COMMIT: #{commit_id}"
+        end
+      end
+      
+      # Fallback to git repository detection
+      if commit_id.nil? || commit_id.empty?
         # Use robust git command execution with proper error handling
         begin
           commit_id = `cd "#{repo_root}" && git rev-parse --short remotes/origin/homebrew-qemu-3dfx 2>/dev/null`.strip

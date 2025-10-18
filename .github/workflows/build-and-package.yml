@@ -82,37 +82,6 @@ jobs:
       with:
         fetch-depth: 0  # Full history for commit tracking
         ref: ${{ github.event.inputs.commit_id != '' && github.event.inputs.commit_id || github.ref }}
-        submodules: recursive  # Initialize git submodules
-        
-    - name: Initialize git submodules
-      if: steps.should_run.outputs.should_run == 'true'
-      run: |
-        echo "Initializing git submodules for qemu-3dfx upstream..."
-        git submodule update --init --recursive
-        
-        # Verify submodule initialization
-        echo "Checking qemu-3dfx-upstream submodule..."
-        if [ -d "qemu-3dfx-upstream" ]; then
-          echo "✅ qemu-3dfx-upstream submodule initialized"
-          ls -la qemu-3dfx-upstream/ | head -5
-        else
-          echo "❌ qemu-3dfx-upstream submodule not found"
-          exit 1
-        fi
-        
-        # Verify symlinks work
-        echo "Verifying symlinks to submodule..."
-        if [ -d "qemu-0" ]; then
-          echo "✅ qemu-0 symlink working"
-        else
-          echo "❌ qemu-0 symlink not working"
-        fi
-        
-        if [ -d "qemu-1" ]; then
-          echo "✅ qemu-1 symlink working"
-        else
-          echo "❌ qemu-1 symlink not working"
-        fi
         
     - name: Set up environment
       if: steps.should_run.outputs.should_run == 'true'
@@ -152,45 +121,42 @@ jobs:
     - name: Build and test QEMU 3dfx
       if: steps.should_run.outputs.should_run == 'true'
       run: |
-        # Environment variables are now set globally at job level
-        echo "=== Build Configuration ==="
+        # Set commit identity for the sign_commit script
         if [ -n "${{ github.event.inputs.commit_id }}" ]; then
-          echo "Using custom commit ID: ${{ github.event.inputs.commit_id }}"
+          export COMMIT_ID_OVERRIDE="${{ github.event.inputs.commit_id }}"
+          export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
+          echo "Using custom commit ID: ${{ github.event.inputs.commit_id }} (short: ${COMMIT_SHORT})"
         else
+          export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
           echo "Using auto-detected commit ID: ${COMMIT_SHORT}"
         fi
         
-        if [ "$QEMU_3DFX_EXPERIMENTAL_PATCHES" = "true" ]; then
-          echo "✅ Experimental patches ENABLED"
-        else
-          echo "ℹ️ Experimental patches DISABLED"
-        fi
-        
-        echo "Repository root: ${QEMU_3DFX_REPO_ROOT}"
-        
-        # Verify required files exist in repository root (QEMU_3DFX_REPO_ROOT set globally)
-        echo "Verifying qemu-3dfx repository structure..."
-        echo "Repository root: ${QEMU_3DFX_REPO_ROOT}"
-        ls -la "${QEMU_3DFX_REPO_ROOT}/" | head -10
-        
-        if [ ! -f "${QEMU_3DFX_REPO_ROOT}/00-qemu110x-mesa-glide.patch" ]; then
-          echo "❌ Required patch file not found at ${QEMU_3DFX_REPO_ROOT}/00-qemu110x-mesa-glide.patch"
-          exit 1
-        fi
-        
-        if [ ! -d "${QEMU_3DFX_REPO_ROOT}/qemu-0" ]; then
-          echo "❌ Required qemu-0 directory not found at ${QEMU_3DFX_REPO_ROOT}/qemu-0"
-          exit 1
-        fi
-        
-        echo "✅ Repository structure verified"
-        
-        # Create temp file with repository root (backup method for environment variable issues)
-        echo "Creating temp file with repository root as backup..."
-        echo "${QEMU_3DFX_REPO_ROOT}" > /tmp/qemu_3dfx_repo_root
-        echo "Temp file created: $(cat /tmp/qemu_3dfx_repo_root)"
+        # Set experimental patch flag based on input
+        WORKFLOW_INPUT="${{ github.event.inputs.apply_experimental }}"
+        # Convert to lowercase using tr for compatibility
+        WORKFLOW_INPUT_LOWER=$(echo "${WORKFLOW_INPUT}" | tr '[:upper:]' '[:lower:]')
+        case "${WORKFLOW_INPUT_LOWER}" in
+          "true"|"1"|"yes"|"on")
+            export QEMU_3DFX_EXPERIMENTAL_PATCHES="true"
+            echo "✅ Experimental patches ENABLED"
+            ;;
+          *)
+            export QEMU_3DFX_EXPERIMENTAL_PATCHES="false"
+            echo "ℹ️ Experimental patches DISABLED"
+            ;;
+        esac
         
         cd homebrew-qemu3dfx
+        
+        # Create temp files for all environment variables (backup method for Homebrew environment sanitization)
+        echo "${{ github.workspace }}" > /tmp/qemu_3dfx_repo_root
+        echo "${COMMIT_SHORT}" > /tmp/qemu_3dfx_commit
+        echo "${QEMU_3DFX_EXPERIMENTAL_PATCHES}" > /tmp/apply_experimental_patches
+        
+        echo "Created temp files with build configuration:"
+        echo "  Repository root: $(cat /tmp/qemu_3dfx_repo_root)"
+        echo "  Commit ID: $(cat /tmp/qemu_3dfx_commit)"
+        echo "  Experimental patches: $(cat /tmp/apply_experimental_patches)"
         
         echo "Building and testing QEMU 3dfx using optimized test-formula.sh..."
 
