@@ -188,10 +188,10 @@ for file in $SIGN_EXE; do
 done
 echo ""
 echo "Usage:"
-echo "  # 3dfx acceleration (Requires guest-side Glide wrappers in DOS/Windows):"
+echo "  # 3dfx acceleration (32-bit DOS/Windows guests only, requires Glide wrappers):"
 echo "  qemu-system-i386 -machine pc-i440fx-2.1 -cpu pentium2 -m 128 -hda game.img"
 echo ""
-echo "  # Virgl3D acceleration (modern OpenGL):"
+echo "  # Virgl3D acceleration (modern OpenGL for 64-bit guests):"
 echo "  qemu-system-x86_64 -device virtio-vga-gl -display sdl,gl=on -hda os.img"
 echo ""
 echo "  # Available architectures:"
