@@ -140,6 +140,26 @@ jobs:
             ;;
         esac
         
+        # Set repository root for Homebrew formula
+        export QEMU_3DFX_REPO_ROOT="${GITHUB_WORKSPACE}"
+        echo "Set QEMU_3DFX_REPO_ROOT=${QEMU_3DFX_REPO_ROOT}"
+        
+        # Verify required files exist in repository root
+        echo "Verifying qemu-3dfx repository structure..."
+        ls -la "${QEMU_3DFX_REPO_ROOT}/" | head -10
+        
+        if [ ! -f "${QEMU_3DFX_REPO_ROOT}/00-qemu110x-mesa-glide.patch" ]; then
+          echo "❌ Required patch file not found at ${QEMU_3DFX_REPO_ROOT}/00-qemu110x-mesa-glide.patch"
+          exit 1
+        fi
+        
+        if [ ! -d "${QEMU_3DFX_REPO_ROOT}/qemu-0" ]; then
+          echo "❌ Required qemu-0 directory not found at ${QEMU_3DFX_REPO_ROOT}/qemu-0"
+          exit 1
+        fi
+        
+        echo "✅ Repository structure verified"
+        
         cd homebrew-qemu3dfx
         
         echo "Building and testing QEMU 3dfx using optimized test-formula.sh..."
