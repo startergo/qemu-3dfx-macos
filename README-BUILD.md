@@ -170,22 +170,6 @@ qemu-system-x86_64 \
   -hda linux.img
 ```
 
-### Windows 10/11 with Virgl3D
-
-```bash
-# Run Windows with DirectX to OpenGL translation
-qemu-system-x86_64 \
-  -accel hvf \
-  -m 4096 \
-  -smp 4 \
-  -device virtio-vga-gl \
-  -display sdl,gl=on \
-  -device virtio-scsi-pci \
-  -drive file=windows10.img,if=virtio,format=qcow2
-```
-
-> **Note**: On macOS, use `-accel hvf` (Hypervisor Framework) instead of `-enable-kvm`.
-
 ## How 3dfx Support Works
 
 QEMU-3dfx doesn't use device parameters. Instead, it works through:
@@ -197,16 +181,8 @@ QEMU-3dfx doesn't use device parameters. Instead, it works through:
 3. **Automatic Activation**: When games call Glide functions, the wrappers pass them to the host GPU
 
 > **Important**: 
-> - There is no `-device 3dfx` parameter. The 3dfx support is always available and activated by guest drivers.
 > - **3dfx drivers are designed for 32-bit Windows guests only**, not 64-bit Windows.
 > - Use `qemu-system-i386` for 3dfx support, not `qemu-system-x86_64`.
-
-## Supported Voodoo Types
-
-The wrapper DLLs support different Voodoo card emulation:
-- Voodoo Graphics (original 4MB)
-- Voodoo2 (8-12MB, recommended for most games)
-- Voodoo Banshee
 
 ## Virgl3D Options
 
@@ -215,7 +191,6 @@ The wrapper DLLs support different Voodoo card emulation:
 | `virtio-vga-gl` | VirtIO GPU with OpenGL support |
 | `virtio-gpu-gl-pci` | VirtIO GPU PCI with OpenGL |
 | `-display sdl,gl=on` | Enable OpenGL in SDL display |
-| `-display gtk,gl=on` | Enable OpenGL in GTK display |
 
 ## Troubleshooting
 
