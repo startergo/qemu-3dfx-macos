@@ -188,8 +188,8 @@ for file in $SIGN_EXE; do
 done
 echo ""
 echo "Usage:"
-echo "  # 3dfx acceleration (Voodoo Graphics/Voodoo2):"
-echo "  qemu-system-i386 -device 3dfx,voodoo=voodoo2 -hda game.img"
+echo "  # 3dfx acceleration (Requires guest-side Glide wrappers in DOS/Windows):"
+echo "  qemu-system-i386 -machine pc-i440fx-2.1 -cpu pentium2 -m 128 -hda game.img"
 echo ""
 echo "  # Virgl3D acceleration (modern OpenGL):"
 echo "  qemu-system-x86_64 -device virtio-vga-gl -display sdl,gl=on -hda os.img"

@@ -1,9 +1,9 @@
 class Qemu3dfx < Formula
   desc "QEMU with 3dfx Voodoo and Virgl3D OpenGL acceleration support"
   homepage "https://github.com/startergo/qemu-3dfx-macos"
-  url "https://download.qemu.org/qemu-10.0.0.tar.xz"
-  version "10.0.0-3dfx"
-  sha256 "22c075601fdcf8c7b2671a839ebdcef1d4f2973eb6735254fd2e1bd0f30b3896"
+  url "https://download.qemu.org/qemu-10.1.0.tar.xz"
+  version "10.1.0-3dfx"
+  sha256 "e0517349b50ca73ebec2fa85b06050d5c463ca65c738833bd8fc1f15f180be51"
   license "GPL-2.0-or-later"
   revision 1
 
@@ -83,7 +83,7 @@ class Qemu3dfx < Formula
     unless ENV["QEMU_3DFX_REPO_ROOT"]
       # Try the local development path first (../../ from homebrew-qemu3dfx/Formula/)
       local_path = File.expand_path("../..", __dir__)
-      key_files = ["00-qemu100x-mesa-glide.patch", "qemu-0", "virgil3d"]
+      key_files = ["00-qemu110x-mesa-glide.patch", "qemu-0", "virgil3d"]
       
       if key_files.all? { |file| File.exist?(File.join(local_path, file)) }
         ENV["QEMU_3DFX_REPO_ROOT"] = local_path
@@ -542,16 +542,16 @@ class Qemu3dfx < Formula
       ohai "Warning: Mesa directory not found at #{qemu1_hw}/mesa"
     end
 
-    # Step 2: Apply KJ's Mesa/Glide patches (patch -p0 -i ../00-qemu100x-mesa-glide.patch)
-    patch_file = "#{repo_root}/00-qemu100x-mesa-glide.patch"
-    ohai "Step 2: Looking for QEMU 10.0.0 patch file at: #{patch_file}"
+    # Step 2: Apply KJ's Mesa/Glide patches (patch -p0 -i ../00-qemu110x-mesa-glide.patch)
+    patch_file = "#{repo_root}/00-qemu110x-mesa-glide.patch"
+    ohai "Step 2: Looking for QEMU 10.1.0 patch file at: #{patch_file}"
     
     if File.exist?(patch_file)
-      ohai "Step 2: Applying QEMU 10.0.0 3dfx Mesa/Glide patch with -p0 (upstream sequence)"
-      # Use -p0 to match upstream build sequence exactly: patch -p0 -i ../00-qemu100x-mesa-glide.patch
+      ohai "Step 2: Applying QEMU 10.1.0 3dfx Mesa/Glide patch with -p0 (upstream sequence)"
+      # Use -p0 to match upstream build sequence exactly: patch -p0 -i ../00-qemu110x-mesa-glide.patch
       system "patch", "-p0", "-i", patch_file
     else
-      ohai "QEMU 10.0.0 3dfx patch file not found at: #{patch_file}"
+      ohai "QEMU 10.1.0 3dfx patch file not found at: #{patch_file}"
     end
 
     # Additional patches for macOS compatibility (applied AFTER 3dfx patch to avoid conflicts)
@@ -567,12 +567,12 @@ class Qemu3dfx < Formula
     use_experimental = (flag_file_value == "true") || (flag_file_value.nil? && experimental_patches_env == "true")
     
     if use_experimental
-      ohai "✅ Experimental patches enabled - applying SDL clipboard patch AFTER 3dfx patch"
+      ohai "✅ Experimental patches enabled - applying SDL clipboard patch for QEMU 10.1.0"
       
-      # Apply the cleaned SDL clipboard patch for QEMU 10.0.0
+      # Apply the cleaned SDL clipboard patch (testing against QEMU 10.1.0)
       sdl_clipboard_patch = "#{repo_root}/patches/qemu-10.0.0-sdl-clipboard-post-3dfx-corrected-final.patch"
       if File.exist?(sdl_clipboard_patch)
-        ohai "Applying cleaned SDL clipboard patch: #{File.basename(sdl_clipboard_patch)}"
+        ohai "Applying SDL clipboard patch to QEMU 10.1.0: #{File.basename(sdl_clipboard_patch)}"
         apply_patch_with_path_fixing(sdl_clipboard_patch)
       else
         ohai "Warning: SDL clipboard patch not found at #{sdl_clipboard_patch}"
@@ -642,6 +642,7 @@ class Qemu3dfx < Formula
       end
       
       # Run sign_commit matching upstream: bash ../sign_commit
+      # The script expects: sign_commit -git=path -commit=hash HEAD
       system "bash", sign_script, "-git=#{repo_root}", "-commit=#{commit_id}", "HEAD"
     else
       ohai "Warning: sign_commit script not found - 3dfx drivers may not load properly"
@@ -980,7 +981,7 @@ class Qemu3dfx < Formula
 
   def find_repo_root(start_dir)
     # Look for key files that indicate we're in the qemu-3dfx repository root
-    key_files = ["00-qemu100x-mesa-glide.patch", "qemu-0", "virgil3d"]
+    key_files = ["00-qemu110x-mesa-glide.patch", "qemu-0", "virgil3d"]
     
     # Build list of locations to check in priority order
     locations_to_check = []

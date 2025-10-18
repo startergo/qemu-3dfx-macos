@@ -143,15 +143,16 @@ After successful installation via Homebrew:
 ### 3dfx Voodoo Gaming (DOS/Windows 9x)
 
 ```bash
-# Run DOS/Windows 9x with Voodoo2 support
+# Run DOS/Windows 9x with 3dfx support (requires guest-side Glide wrapper DLLs)
 qemu-system-i386 \
   -machine pc-i440fx-2.1 \
   -cpu pentium2 \
   -m 128 \
-  -device 3dfx,voodoo=voodoo2 \
   -hda dos.img \
   -display sdl
 ```
+
+> **Note**: 3dfx acceleration requires installing Glide wrapper DLLs in the guest OS (DOS/Windows). No device parameter is needed - the 3dfx support is built into QEMU and activated through guest drivers.
 
 ### Modern Linux with Virgl3D
 
@@ -181,13 +182,24 @@ qemu-system-x86_64 \
 
 > **Note**: On macOS, use `-accel hvf` (Hypervisor Framework) instead of `-enable-kvm`.
 
-## 3dfx Device Options
+## How 3dfx Support Works
 
-| Option | Description |
-|--------|-------------|
-| `3dfx,voodoo=voodoo1` | Voodoo Graphics (original) |
-| `3dfx,voodoo=voodoo2` | Voodoo2 (recommended for most games) |
-| `3dfx,voodoo=banshee` | Voodoo Banshee |
+QEMU-3dfx doesn't use device parameters. Instead, it works through:
+
+1. **Built-in Hardware Emulation**: 3dfx support is compiled into QEMU as hardware pass-through code
+2. **Guest-side Wrapper DLLs**: Install special Glide wrapper libraries in your DOS/Windows guest:
+   - `GLIDE.DLL`, `GLIDE2X.DLL`, `GLIDE3X.DLL` (Glide API wrappers)
+   - `FXMEMMAP.VXD` (Win9x) or `FXPTL.SYS` (Win2K/XP) - memory drivers
+3. **Automatic Activation**: When games call Glide functions, the wrappers pass them to the host GPU
+
+> **Important**: There is no `-device 3dfx` parameter. The 3dfx support is always available and activated by guest drivers.
+
+## Supported Voodoo Types
+
+The wrapper DLLs support different Voodoo card emulation:
+- Voodoo Graphics (original 4MB)
+- Voodoo2 (8-12MB, recommended for most games)
+- Voodoo Banshee
 
 ## Virgl3D Options
 

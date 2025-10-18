@@ -4,8 +4,8 @@ TOP=.
 GIT=`echo $@ | sed "s/\-git=\(.*\)/\1/;s/\ .*//"`
 MANUAL_COMMIT=`echo $@ | sed -n "s/.*\-commit=\([a-f0-9]*\).*/\1/p"`
 
-if [ -z $GIT ]; then GIT=.; else shift; fi;
-ARG=$@; if [ -z $ARG ]; then ARG=HEAD; fi
+if [ -z "$GIT" ]; then GIT=.; else shift; fi;
+ARG=$@; if [ -z "$ARG" ]; then ARG=HEAD; fi
 
 # Use manual commit if specified, otherwise check environment variable, otherwise get from git
 if [ -n "$MANUAL_COMMIT" ]; then

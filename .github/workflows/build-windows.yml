@@ -39,8 +39,8 @@ jobs:
             pkg_prefix: 'mingw-w64-ucrt-x86_64'
             artifact_suffix: 'ucrt64'
     env:
-      QEMU_VERSION: '10.0.2'
-      PATCH_FILE: '00-qemu100x-mesa-glide.patch'
+      QEMU_VERSION: '10.1.0'
+      PATCH_FILE: '00-qemu110x-mesa-glide.patch'
       APPLY_EXPERIMENTAL: ${{ github.event.inputs.apply_experimental == 'true' }}
       COMMIT_ID_OVERRIDE: ${{ github.event.inputs.commit_id }}
       
@@ -479,7 +479,7 @@ jobs:
       shell: pwsh
       run: |
         $releaseTag = "windows-v$(Get-Date -Format 'yyyyMMdd')-$env:GITHUB_RUN_NUMBER"
-        $qemuVersion = "10.0.2"  # Match the QEMU_VERSION from env
+        $qemuVersion = "10.1.0"  # Match the QEMU_VERSION from env
         
         # Create release notes content
         $content = @()
