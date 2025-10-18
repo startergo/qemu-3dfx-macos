@@ -81,21 +81,34 @@ class Qemu3dfx < Formula
   def install
     # Set repository root - handle both local development and Homebrew tap scenarios
     unless ENV["QEMU_3DFX_REPO_ROOT"]
-      # Try the local development path first (../../ from homebrew-qemu3dfx/Formula/)
-      local_path = File.expand_path("../..", __dir__)
-      key_files = ["00-qemu110x-mesa-glide.patch", "qemu-0", "virgil3d"]
-      
-      if key_files.all? { |file| File.exist?(File.join(local_path, file)) }
-        ENV["QEMU_3DFX_REPO_ROOT"] = local_path
-        ohai "Using local development repository: #{local_path}"
-      else
-        # When running from a Homebrew tap, suggest the most likely local path
-        suggested_path = "/Users/macbookpro/Downloads/qemu-3dfx"
-        if Dir.exist?(suggested_path) && key_files.all? { |file| File.exist?(File.join(suggested_path, file)) }
-          ENV["QEMU_3DFX_REPO_ROOT"] = suggested_path
-          ohai "Auto-detected repository at common location: #{suggested_path}"
+      # Try temp file first (for GitHub Actions - bypasses environment sanitization)
+      if File.exist?("/tmp/qemu_3dfx_repo_root")
+        temp_repo_root = File.read("/tmp/qemu_3dfx_repo_root").strip
+        if Dir.exist?(temp_repo_root)
+          ENV["QEMU_3DFX_REPO_ROOT"] = temp_repo_root
+          ohai "Using repository root from temp file: #{temp_repo_root}"
         else
-          odie "Repository root not found. Please set QEMU_3DFX_REPO_ROOT environment variable to your qemu-3dfx repository path.\nExample: export QEMU_3DFX_REPO_ROOT=/Users/macbookpro/Downloads/qemu-3dfx"
+          ohai "Warning: Temp file repo root does not exist: #{temp_repo_root}"
+        end
+      end
+      
+      # If still not set, try the local development path (../../ from homebrew-qemu3dfx/Formula/)
+      unless ENV["QEMU_3DFX_REPO_ROOT"]
+        local_path = File.expand_path("../..", __dir__)
+        key_files = ["00-qemu110x-mesa-glide.patch", "qemu-0", "virgil3d"]
+        
+        if key_files.all? { |file| File.exist?(File.join(local_path, file)) }
+          ENV["QEMU_3DFX_REPO_ROOT"] = local_path
+          ohai "Using local development repository: #{local_path}"
+        else
+          # When running from a Homebrew tap, suggest the most likely local path
+          suggested_path = "/Users/macbookpro/Downloads/qemu-3dfx"
+          if Dir.exist?(suggested_path) && key_files.all? { |file| File.exist?(File.join(suggested_path, file)) }
+            ENV["QEMU_3DFX_REPO_ROOT"] = suggested_path
+            ohai "Auto-detected repository at common location: #{suggested_path}"
+          else
+            odie "Repository root not found. Please set QEMU_3DFX_REPO_ROOT environment variable to your qemu-3dfx repository path.\nExample: export QEMU_3DFX_REPO_ROOT=/Users/macbookpro/Downloads/qemu-3dfx"
+          end
         end
       end
     else
