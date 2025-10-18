@@ -41,6 +41,7 @@ on:
 env:
   HOMEBREW_NO_AUTO_UPDATE: 1
   HOMEBREW_NO_INSTALL_CLEANUP: 1
+  QEMU_3DFX_REPO_ROOT: ${{ github.workspace }}
 
 jobs:
   build:
@@ -56,6 +57,11 @@ jobs:
           - arch: x86_64
             runner: macos-15-intel      # Intel x86_64
             runner_arch: x86_64
+    
+    env:
+      # Set commit-related environment variables globally for the job
+      QEMU_3DFX_COMMIT: ${{ github.event.inputs.commit_id != '' && github.event.inputs.commit_id || '' }}
+      QEMU_3DFX_EXPERIMENTAL_PATCHES: ${{ github.event.inputs.apply_experimental == 'true' || github.event.inputs.apply_experimental == 'True' || github.event.inputs.apply_experimental == '1' }}
     
     steps:
     - name: Check if this architecture should run
@@ -146,37 +152,25 @@ jobs:
     - name: Build and test QEMU 3dfx
       if: steps.should_run.outputs.should_run == 'true'
       run: |
-        # Set commit identity for the sign_commit script
+        # Environment variables are now set globally at job level
+        echo "=== Build Configuration ==="
         if [ -n "${{ github.event.inputs.commit_id }}" ]; then
-          export COMMIT_ID_OVERRIDE="${{ github.event.inputs.commit_id }}"
-          export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
-          echo "Using custom commit ID: ${{ github.event.inputs.commit_id }} (short: ${COMMIT_SHORT})"
+          echo "Using custom commit ID: ${{ github.event.inputs.commit_id }}"
         else
-          export QEMU_3DFX_COMMIT="${COMMIT_SHORT}"
           echo "Using auto-detected commit ID: ${COMMIT_SHORT}"
         fi
         
-        # Set experimental patch flag based on input
-        WORKFLOW_INPUT="${{ github.event.inputs.apply_experimental }}"
-        # Convert to lowercase using tr for compatibility
-        WORKFLOW_INPUT_LOWER=$(echo "${WORKFLOW_INPUT}" | tr '[:upper:]' '[:lower:]')
-        case "${WORKFLOW_INPUT_LOWER}" in
-          "true"|"1"|"yes"|"on")
-            export QEMU_3DFX_EXPERIMENTAL_PATCHES="true"
-            echo "✅ Experimental patches ENABLED"
-            ;;
-          *)
-            export QEMU_3DFX_EXPERIMENTAL_PATCHES="false"
-            echo "ℹ️ Experimental patches DISABLED"
-            ;;
-        esac
+        if [ "$QEMU_3DFX_EXPERIMENTAL_PATCHES" = "true" ]; then
+          echo "✅ Experimental patches ENABLED"
+        else
+          echo "ℹ️ Experimental patches DISABLED"
+        fi
         
-        # Set repository root for Homebrew formula
-        export QEMU_3DFX_REPO_ROOT="${GITHUB_WORKSPACE}"
-        echo "Set QEMU_3DFX_REPO_ROOT=${QEMU_3DFX_REPO_ROOT}"
+        echo "Repository root: ${QEMU_3DFX_REPO_ROOT}"
         
-        # Verify required files exist in repository root
+        # Verify required files exist in repository root (QEMU_3DFX_REPO_ROOT set globally)
         echo "Verifying qemu-3dfx repository structure..."
+        echo "Repository root: ${QEMU_3DFX_REPO_ROOT}"
         ls -la "${QEMU_3DFX_REPO_ROOT}/" | head -10
         
         if [ ! -f "${QEMU_3DFX_REPO_ROOT}/00-qemu110x-mesa-glide.patch" ]; then
