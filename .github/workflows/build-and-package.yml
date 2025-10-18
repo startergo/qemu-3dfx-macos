@@ -88,8 +88,14 @@ jobs:
       if: steps.should_run.outputs.should_run == 'true'
       run: |
         echo "Initializing git submodules for qemu-3dfx repository..."
+        git submodule update --init --recursive
+        echo "Submodules initialized, now updating to latest remote commits..."
         git submodule update --remote
-        echo "✅ Git submodules initialized"
+        echo "✅ Git submodules initialized and updated"
+        
+        # Verify the submodule is properly initialized
+        echo "Checking qemu-3dfx-upstream submodule:"
+        ls -la qemu-3dfx-upstream/ | head -5
         
     - name: Set up environment
       if: steps.should_run.outputs.should_run == 'true'
