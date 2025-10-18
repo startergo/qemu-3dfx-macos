@@ -150,12 +150,12 @@ jobs:
         
         # Create temp files for all environment variables (backup method for Homebrew environment sanitization)
         echo "${{ github.workspace }}" > /tmp/qemu_3dfx_repo_root
-        echo "${COMMIT_SHORT}" > /tmp/qemu_3dfx_commit
+        echo "${COMMIT_SHORT}" > /tmp/qemu_3dfx_commit_override
         echo "${QEMU_3DFX_EXPERIMENTAL_PATCHES}" > /tmp/apply_experimental_patches
         
         echo "Created temp files with build configuration:"
         echo "  Repository root: $(cat /tmp/qemu_3dfx_repo_root)"
-        echo "  Commit ID: $(cat /tmp/qemu_3dfx_commit)"
+        echo "  Commit ID: $(cat /tmp/qemu_3dfx_commit_override)"
         echo "  Experimental patches: $(cat /tmp/apply_experimental_patches)"
         
         echo "Building and testing QEMU 3dfx using optimized test-formula.sh..."
