@@ -185,6 +185,11 @@ jobs:
         
         echo "✅ Repository structure verified"
         
+        # Create temp file with repository root (backup method for environment variable issues)
+        echo "Creating temp file with repository root as backup..."
+        echo "${QEMU_3DFX_REPO_ROOT}" > /tmp/qemu_3dfx_repo_root
+        echo "Temp file created: $(cat /tmp/qemu_3dfx_repo_root)"
+        
         cd homebrew-qemu3dfx
         
         echo "Building and testing QEMU 3dfx using optimized test-formula.sh..."

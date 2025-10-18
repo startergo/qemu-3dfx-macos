@@ -986,12 +986,19 @@ class Qemu3dfx < Formula
     # Build list of locations to check in priority order
     locations_to_check = []
     
-    # 1. Environment variables (highest priority)
+    # 1. Temp file (for GitHub Actions - bypasses environment sanitization)
+    if File.exist?("/tmp/qemu_3dfx_repo_root")
+      temp_path = File.read("/tmp/qemu_3dfx_repo_root").strip
+      locations_to_check << temp_path if Dir.exist?(temp_path)
+      ohai "Found temp file with repository root: #{temp_path}"
+    end
+    
+    # 2. Environment variables (high priority)
     locations_to_check << ENV["GITHUB_WORKSPACE"] if ENV["GITHUB_WORKSPACE"]
     locations_to_check << File.join(ENV["RUNNER_WORKSPACE"], "qemu-3dfx-macos") if ENV["RUNNER_WORKSPACE"]
     locations_to_check << ENV["QEMU_3DFX_REPO_ROOT"] if ENV["QEMU_3DFX_REPO_ROOT"]
     
-    # 2. Walk up from start_dir
+    # 3. Walk up from start_dir
     current_dir = File.expand_path(start_dir)
     15.times do
       locations_to_check << current_dir
