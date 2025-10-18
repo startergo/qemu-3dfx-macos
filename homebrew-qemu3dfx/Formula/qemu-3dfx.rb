@@ -526,7 +526,19 @@ class Qemu3dfx < Formula
       ohai "Using manual repository override: #{ENV["QEMU_3DFX_REPO_ROOT"]}"
       ENV["QEMU_3DFX_REPO_ROOT"]
     else
-      find_repo_root(__dir__)
+      # Try temp file first before using find_repo_root helper
+      if File.exist?("/tmp/qemu_3dfx_repo_root")
+        temp_repo_root = File.read("/tmp/qemu_3dfx_repo_root").strip
+        if Dir.exist?(temp_repo_root)
+          ohai "Using repository root from temp file in apply_3dfx_patches: #{temp_repo_root}"
+          temp_repo_root
+        else
+          ohai "Warning: Temp file repo root does not exist in apply_3dfx_patches: #{temp_repo_root}"
+          find_repo_root(__dir__)
+        end
+      else
+        find_repo_root(__dir__)
+      end
     end
     if repo_root.nil?
       odie "Could not locate qemu-3dfx repository root! Ensure all required files are present."
