@@ -84,6 +84,13 @@ jobs:
         # Always checkout the current branch, regardless of custom commit_id input
         # The commit_id input is used for build identification, not source checkout
         
+    - name: Initialize git submodules
+      if: steps.should_run.outputs.should_run == 'true'
+      run: |
+        echo "Initializing git submodules for qemu-3dfx repository..."
+        git submodule update --remote
+        echo "✅ Git submodules initialized"
+        
     - name: Set up environment
       if: steps.should_run.outputs.should_run == 'true'
       run: |
