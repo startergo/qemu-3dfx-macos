@@ -97,6 +97,37 @@ jobs:
         echo "Checking qemu-3dfx-upstream submodule:"
         ls -la qemu-3dfx-upstream/ | head -5
         
+    - name: Commit submodule updates
+      if: steps.should_run.outputs.should_run == 'true'
+      run: |
+        # Configure git for the GitHub Actions bot
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+        # Check if submodule has changes
+        if git diff --quiet qemu-3dfx-upstream; then
+          echo "ℹ️ No submodule updates to commit"
+        else
+          echo "📝 Submodule has updates, committing..."
+          git add qemu-3dfx-upstream
+          
+          # Get the new submodule commit hash for the commit message
+          SUBMODULE_COMMIT=$(cd qemu-3dfx-upstream && git rev-parse --short HEAD)
+          
+          git commit -m "Update qemu-3dfx-upstream submodule to ${SUBMODULE_COMMIT}" \
+                     -m "Automated update from GitHub Actions workflow" \
+                     -m "Submodule now points to latest commit from master branch"
+          
+          # Only push on the first architecture to avoid conflicts
+          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+            echo "🚀 Pushing submodule update to repository..."
+            git push
+            echo "✅ Submodule update committed and pushed"
+          else
+            echo "ℹ️ Skipping push on ${{ matrix.arch }} to avoid conflicts (arm64 will push)"
+          fi
+        fi
+        
     - name: Set up environment
       if: steps.should_run.outputs.should_run == 'true'
       run: |

@@ -48,6 +48,50 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         
+      - name: Initialize git submodules
+        shell: bash
+        run: |
+          echo "Initializing git submodules for qemu-3dfx repository..."
+          git submodule update --init --recursive
+          echo "Submodules initialized, now updating to latest remote commits..."
+          git submodule update --remote
+          echo "✅ Git submodules initialized and updated"
+          
+          # Verify the submodule is properly initialized
+          echo "Checking qemu-3dfx-upstream submodule:"
+          ls -la qemu-3dfx-upstream/ | head -5
+          
+      - name: Commit submodule updates
+        shell: bash
+        run: |
+          # Configure git for the GitHub Actions bot
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Check if submodule has changes
+          if git diff --quiet qemu-3dfx-upstream; then
+            echo "ℹ️ No submodule updates to commit"
+          else
+            echo "📝 Submodule has updates, committing..."
+            git add qemu-3dfx-upstream
+            
+            # Get the new submodule commit hash for the commit message
+            SUBMODULE_COMMIT=$(cd qemu-3dfx-upstream && git rev-parse --short HEAD)
+            
+            git commit -m "Update qemu-3dfx-upstream submodule to ${SUBMODULE_COMMIT}" \
+                       -m "Automated update from GitHub Actions workflow (Windows)" \
+                       -m "Submodule now points to latest commit from master branch"
+            
+            # Only push on MINGW64 to avoid conflicts with UCRT64
+            if [[ "${{ matrix.msystem }}" == "MINGW64" ]]; then
+              echo "🚀 Pushing submodule update to repository..."
+              git push
+              echo "✅ Submodule update committed and pushed"
+            else
+              echo "ℹ️ Skipping push on ${{ matrix.msystem }} to avoid conflicts (MINGW64 will push)"
+            fi
+          fi
+        
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
@@ -437,6 +481,14 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      
+    - name: Initialize git submodules
+      shell: bash
+      run: |
+        echo "Initializing git submodules for qemu-3dfx repository..."
+        git submodule update --init --recursive
+        git submodule update --remote
+        echo "✅ Git submodules initialized and updated"
         
     - name: Download all artifacts
       uses: actions/download-artifact@v4
