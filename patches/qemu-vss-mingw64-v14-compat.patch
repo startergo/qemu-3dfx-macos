@@ -1,0 +1,18 @@
+--- a/qga/vss-win32/install.cpp.orig	2025-01-28 00:00:00.000000000 +0000
++++ b/qga/vss-win32/install.cpp	2025-01-28 00:00:00.000000000 +0000
+@@ -547,6 +547,7 @@
+ }
+ 
+ 
++#if !defined(__MINGW64_VERSION_MAJOR) || __MINGW64_VERSION_MAJOR < 14
+ /* Helper class for _bstr_t */
+ namespace _com_util
+ {
+@@ -563,6 +564,7 @@
+         return bstr;
+     }
+ }
++#endif /* __MINGW64_VERSION_MAJOR < 14 */
+ 
+ 
+ /* Stop QGA VSS provider service from COM+ Applications */

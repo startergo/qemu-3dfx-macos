@@ -212,6 +212,19 @@ jobs:
           echo "Applying main QEMU-3dfx patch: ${{ env.PATCH_FILE }}"
           patch -p0 -i ../${{ env.PATCH_FILE }}
           
+          echo "🔧 Applying mingw-w64 v14+ compatibility fix for VSS"
+          VSS_FIX_PATCH="../patches/qemu-vss-mingw64-v14-compat.patch"
+          if [[ -f "$VSS_FIX_PATCH" ]]; then
+            echo "Applying VSS mingw-w64 v14 compatibility fix: $VSS_FIX_PATCH"
+            if patch -p1 -i "$VSS_FIX_PATCH"; then
+              echo "✅ VSS mingw-w64 v14 compatibility fix applied successfully"
+            else
+              echo "⚠️ VSS fix patch failed, but continuing (may cause build issues with mingw-w64 v14+)"
+            fi
+          else
+            echo "⚠️ VSS fix patch not found: $VSS_FIX_PATCH (required for mingw-w64 v14+)"
+          fi
+          
           echo "=== DEBUGGING WINDOWS WORKFLOW INPUTS ==="
           echo "GitHub event name: ${GITHUB_EVENT_NAME}"
           echo "Raw github.event.inputs.apply_experimental: '${{ github.event.inputs.apply_experimental }}'"
