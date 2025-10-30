@@ -1,20 +1,19 @@
 --- a/qga/vss-win32/install.cpp
 +++ b/qga/vss-win32/install.cpp
-@@ -547,7 +547,7 @@ STDAPI COMUnregister(void)
+@@ -548,7 +548,7 @@
  }
  
  
--/* Helper class for _bstr_t */
-+#if !defined(__MINGW64_VERSION_MAJOR) || __MINGW64_VERSION_MAJOR < 14 /* Helper class for _bstr_t */
+-/* Support function to convert ASCII string into BSTR (used in _bstr_t) */
++#if !defined(__MINGW64_VERSION_MAJOR) || __MINGW64_VERSION_MAJOR < 14 /* Support function to convert ASCII string into BSTR (used in _bstr_t) */
  namespace _com_util
  {
      BSTR WINAPI ConvertStringToBSTR(const char *ascii) {
-@@ -563,7 +563,7 @@ namespace _com_util
+@@ -566,6 +566,7 @@
          return bstr;
      }
  }
--
 +#endif /* __MINGW64_VERSION_MAJOR < 14 */
  
- /* Stop QGA VSS provider service from COM+ Applications */
- static COMList *COMUnload(COMList *list)
+ /* Stop QGA VSS provider service using Winsvc API  */
+ STDAPI StopService(void)
