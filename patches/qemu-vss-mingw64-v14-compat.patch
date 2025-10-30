@@ -1,14 +1,19 @@
---- a/qga/vss-win32/install.cpp	2025-01-28 00:00:00.000000000 +0000
-+++ b/qga/vss-win32/install.cpp	2025-01-28 00:00:00.000000000 +0000
-@@ -548,6 +548,7 @@
+--- a/qga/vss-win32/install.cpp
++++ b/qga/vss-win32/install.cpp
+@@ -544,9 +544,10 @@ STDAPI COMUnregister(void)
+         }
+     }
+     return hr;
+ }
  
  
- /* Helper class for _bstr_t */
 +#if !defined(__MINGW64_VERSION_MAJOR) || __MINGW64_VERSION_MAJOR < 14
+ /* Helper class for _bstr_t */
  namespace _com_util
  {
-     BSTR WINAPI ConvertStringToBSTR(const char *ascii) {
-@@ -563,6 +564,7 @@
+@@ -562,9 +563,10 @@ namespace _com_util
+         wcscpy(bstr, wstring);
+         delete[] wstring;
          return bstr;
      }
  }
