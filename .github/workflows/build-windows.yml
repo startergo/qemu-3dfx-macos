@@ -260,7 +260,7 @@ jobs:
           fi
           
           echo "Signing commit ID"
-          bash ../scripts/sign_commit
+          bash ../sign_commit
           echo "Build preparation completed"
 
       - name: Create build directory
@@ -304,7 +304,7 @@ jobs:
           fi
           
           echo "Signing binaries"
-          bash ../scripts/sign_binary.sh
+          bash ../sign_binary.sh
           
           echo "Creating version info"
           echo "QEMU-3dfx (Windows Build)" > version.txt
@@ -396,7 +396,7 @@ jobs:
               echo "Using auto-detected commit ID for wrapper signing"
               export COMMIT_ID_OVERRIDE=""
             fi
-            bash ../../scripts/sign_binary.sh
+            bash ../../sign_binary.sh
             
             cd ..
             echo "Creating wrapper ISO"
