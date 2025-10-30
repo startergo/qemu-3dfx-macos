@@ -1,20 +1,39 @@
---- a/qga/vss-win32/install.cpp
-+++ b/qga/vss-win32/install.cpp
-@@ -547,7 +547,7 @@ STDAPI COMUnregister(void)
- }
- 
- 
--/* Helper class for _bstr_t */
-+#if !defined(__MINGW64_VERSION_MAJOR) || __MINGW64_VERSION_MAJOR < 14 /* Helper class for _bstr_t */
- namespace _com_util
- {
-     BSTR WINAPI ConvertStringToBSTR(const char *ascii) {
-@@ -563,7 +563,7 @@ namespace _com_util
-         return bstr;
-     }
- }
--
-+#endif /* __MINGW64_VERSION_MAJOR < 14 */
- 
- /* Stop QGA VSS provider service from COM+ Applications */
- static COMList *COMUnload(COMList *list)
+--- a/qga/vss-win32/install.cpp--- a/qga/vss-win32/install.cpp
+
++++ b/qga/vss-win32/install.cpp+++ b/qga/vss-win32/install.cpp
+
+@@ -547,7 +547,7 @@ STDAPI COMUnregister(void)@@ -547,7 +547,7 @@ STDAPI COMUnregister(void)
+
+ } }
+
+  
+
+  
+
+-/* Helper class for _bstr_t */-/* Helper class for _bstr_t */
+
++#if !defined(__MINGW64_VERSION_MAJOR) || __MINGW64_VERSION_MAJOR < 14 /* Helper class for _bstr_t */+#if !defined(__MINGW64_VERSION_MAJOR) || __MINGW64_VERSION_MAJOR < 14 /* Helper class for _bstr_t */
+
+ namespace _com_util namespace _com_util
+
+ { {
+
+     BSTR WINAPI ConvertStringToBSTR(const char *ascii) {     BSTR WINAPI ConvertStringToBSTR(const char *ascii) {
+
+@@ -563,7 +563,7 @@ namespace _com_util@@ -563,7 +563,7 @@ namespace _com_util
+
+         return bstr;         return bstr;
+
+     }     }
+
+ } }
+
+--
+
++#endif /* __MINGW64_VERSION_MAJOR < 14 */+#endif /* __MINGW64_VERSION_MAJOR < 14 */
+
+  
+
+ /* Stop QGA VSS provider service from COM+ Applications */ /* Stop QGA VSS provider service from COM+ Applications */
+
+ static COMList *COMUnload(COMList *list) static COMList *COMUnload(COMList *list)
