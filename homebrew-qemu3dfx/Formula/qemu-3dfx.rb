@@ -7,7 +7,7 @@ class Qemu3dfx < Formula
   license "GPL-2.0-or-later"
   revision 1
 
-  head "https://github.com/startergo/qemu-3dfx-macos.git", branch: "homebrew-qemu-3dfx"
+  head "https://github.com/startergo/qemu-3dfx-macos.git", branch: "master"
 
   # Build dependencies
   depends_on "cmake" => :build
@@ -451,10 +451,10 @@ class Qemu3dfx < Formula
       else
         # Fallback to git repository detection
         begin
-          commit_id = `cd "#{repo_dir}" && git rev-parse --short remotes/origin/homebrew-qemu-3dfx 2>/dev/null`.strip
+          commit_id = `cd "#{repo_dir}" && git rev-parse --short remotes/origin/master 2>/dev/null`.strip
           if commit_id.empty? || $?.exitstatus != 0
             # Fallback to local branch if remote doesn't work
-            commit_id = `cd "#{repo_dir}" && git rev-parse --short homebrew-qemu-3dfx 2>/dev/null`.strip
+            commit_id = `cd "#{repo_dir}" && git rev-parse --short master 2>/dev/null`.strip
           end
           if commit_id.empty? || $?.exitstatus != 0
             # Final fallback to HEAD
@@ -632,7 +632,7 @@ class Qemu3dfx < Formula
       # and ensures proper signature matching between QEMU and 3dfx drivers
       
       # Use existing commit ID from environment if set, otherwise get from git
-      # Priority: temp file > QEMU_3DFX_COMMIT (manual override) > origin/homebrew-qemu-3dfx branch
+      # Priority: temp file > QEMU_3DFX_COMMIT (manual override) > origin/master branch
       commit_id = nil
       
       # Try temp file first (for GitHub Actions bypassing Homebrew sanitization)
@@ -653,10 +653,10 @@ class Qemu3dfx < Formula
       if commit_id.nil? || commit_id.empty?
         # Use robust git command execution with proper error handling
         begin
-          commit_id = `cd "#{repo_root}" && git rev-parse --short remotes/origin/homebrew-qemu-3dfx 2>/dev/null`.strip
+          commit_id = `cd "#{repo_root}" && git rev-parse --short remotes/origin/master 2>/dev/null`.strip
           if commit_id.empty? || $?.exitstatus != 0
             # Fallback to local branch if remote doesn't work
-            commit_id = `cd "#{repo_root}" && git rev-parse --short homebrew-qemu-3dfx 2>/dev/null`.strip
+            commit_id = `cd "#{repo_root}" && git rev-parse --short master 2>/dev/null`.strip
           end
           if commit_id.empty? || $?.exitstatus != 0
             # Final fallback to HEAD

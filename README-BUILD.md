@@ -14,8 +14,8 @@ This repository contains patches packaged as a Homebrew formula to easily instal
 ## Quick Start
 
 ```bash
-# Clone this repository (homebrew-qemu-3dfx branch)
-git clone -b homebrew-qemu-3dfx https://github.com/startergo/qemu-3dfx-macos.git
+# Clone this repository (master branch)
+git clone https://github.com/startergo/qemu-3dfx-macos.git
 cd qemu-3dfx-macos
 
 # Run the comprehensive setup and build script
@@ -80,7 +80,7 @@ sudo -E bash ./qemu.sign
 **Commit Hash Priority (Build-time):**
 1. `/tmp/qemu_3dfx_commit_override` temporary file (only working method for builds)
 2. Build arguments (`--commit=abc1234`)
-3. Auto-detection from git repository (default: origin/homebrew-qemu-3dfx branch)
+3. Auto-detection from git repository (default: origin/master branch)
 
 **Why the temp file method:**
 - **Homebrew limitation**: Homebrew sanitizes environment variables during builds
@@ -244,7 +244,7 @@ brew --prefix qemu-3dfx
 - **QEMU Version**: 10.1.0 (upgraded from 10.0.0)
 - **Formula Version**: 10.1.0-3dfx_1
 - **Architecture Support**: x86_64, i386, aarch64 (3dfx requires i386 for 32-bit Windows guests)
-- **Branch**: homebrew-qemu-3dfx (enhanced Homebrew integration)
+- **Branch**: master (enhanced Homebrew integration)
 
 ### Patches Applied
 
@@ -288,15 +288,14 @@ brew test qemu-3dfx
 
 This Homebrew formula is based on KJ's excellent qemu-3dfx project. For issues with:
 
-- **Formula/Installation**: Report to [startergo/qemu-3dfx-macos](https://github.com/startergo/qemu-3dfx-macos) (homebrew-qemu-3dfx branch)
+- **Formula/Installation**: Report to [startergo/qemu-3dfx-macos](https://github.com/startergo/qemu-3dfx-macos)
 - **3dfx emulation**: Report to the original [kjliew/qemu-3dfx](https://github.com/kjliew/qemu-3dfx)
 - **QEMU core**: Report to [QEMU project](https://www.qemu.org/)
 - **Homebrew issues**: Check [Homebrew troubleshooting](https://docs.brew.sh/Troubleshooting)
 
 ### Repository Structure
 
-- **Main branch**: Original upstream synchronization
-- **homebrew-qemu-3dfx branch**: Enhanced Homebrew formula with:
+- **Master branch**: Enhanced Homebrew formula with:
   - Submodule + symlinks architecture for automatic upstream sync
   - Commit hash consistency between build and signing phases
   - Enhanced macOS integration and signing support
