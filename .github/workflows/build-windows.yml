@@ -304,7 +304,7 @@ jobs:
           fi
           
           echo "Signing binaries"
-          bash ../sign_binary.sh
+          bash "${GITHUB_WORKSPACE}/sign_binary.sh"
           
           echo "Creating version info"
           echo "QEMU-3dfx (Windows Build)" > version.txt
@@ -398,7 +398,8 @@ jobs:
               echo "Using auto-detected commit ID for wrapper signing"
               export COMMIT_ID_OVERRIDE=""
             fi
-            bash ../../sign_binary.sh
+            # Use GITHUB_WORKSPACE to find sign_binary.sh in repo root
+            bash "${GITHUB_WORKSPACE}/sign_binary.sh"
             
             cd ..
             echo "Creating wrapper ISO"
