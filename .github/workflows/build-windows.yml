@@ -55,13 +55,24 @@ jobs:
           git submodule update --init --recursive
           echo "✅ Git submodules initialized"
           
-          # Verify the submodule is properly initialized
+          # Verify the qemu-3dfx-upstream submodule is properly initialized
           echo "Checking qemu-3dfx-upstream submodule:"
           ls -la qemu-3dfx-upstream/ | head -5
           
           # Show which submodule commit we're using for the build
           SUBMODULE_COMMIT=$(cd qemu-3dfx-upstream && git rev-parse --short HEAD)
           echo "📦 Building with qemu-3dfx-upstream at commit: ${SUBMODULE_COMMIT}"
+          
+          # Verify the qemu-3dfx-arch submodule (wrappers) is properly initialized
+          echo "Checking qemu-3dfx-arch submodule (wrappers):"
+          ls -la qemu-3dfx-arch/wrappers/ | head -5
+          
+          # Verify nested submodule (wrappers/extra with OpenGLide)
+          echo "Checking wrappers/extra submodule (OpenGLide):"
+          ls -la qemu-3dfx-arch/wrappers/extra/ | head -5
+          
+          WRAPPER_COMMIT=$(cd qemu-3dfx-arch && git rev-parse --short HEAD)
+          echo "📦 Building with qemu-3dfx-arch wrappers at commit: ${WRAPPER_COMMIT}"
         
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2

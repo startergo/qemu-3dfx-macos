@@ -2,3 +2,6 @@
 	path = qemu-3dfx-upstream
 	url = https://github.com/kjliew/qemu-3dfx.git
 	branch = master
+[submodule "qemu-3dfx-arch"]
+	path = qemu-3dfx-arch
+	url = https://github.com/kharovtobi/qemu-3dfx-arch.git
