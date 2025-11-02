@@ -429,10 +429,10 @@ jobs:
 
       - name: Upload wrapper disk
         uses: actions/upload-artifact@v4
-        if: hashFiles('./wrappers/wrappers.iso') != ''
+        if: hashFiles('./qemu-3dfx-arch/wrappers/wrappers.iso') != ''
         with:
           name: qemu-3dfx-wrappers-${{ matrix.artifact_suffix }}-${{ github.run_number }}
-          path: ./wrappers/wrappers.iso
+          path: ./qemu-3dfx-arch/wrappers/wrappers.iso
           retention-days: 30
 
       - name: Build summary
@@ -455,10 +455,10 @@ jobs:
             find install_dir -name "qemu-*.exe" -exec basename {} \;
           fi
           
-          if [[ -f "wrappers/wrappers.iso" ]]; then
+          if [[ -f "qemu-3dfx-arch/wrappers/wrappers.iso" ]]; then
             echo ""
             echo "=== Wrapper ISO created ==="
-            echo "Wrapper ISO size: $(du -h wrappers/wrappers.iso | cut -f1)"
+            echo "Wrapper ISO size: $(du -h qemu-3dfx-arch/wrappers/wrappers.iso | cut -f1)"
           fi
           
           echo ""
