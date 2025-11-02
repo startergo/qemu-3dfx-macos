@@ -361,9 +361,11 @@ jobs:
       - name: Package wrappers
         shell: msys2 {0}
         continue-on-error: true
-        working-directory: ./wrappers
         run: |
           echo "Packaging wrappers"
+          
+          # Navigate to wrappers directory (follows symlink in MSYS2)
+          cd wrappers
           
           # Create wrapper structure if components exist
           if [[ -d "3dfx" || -d "mesa" ]]; then
