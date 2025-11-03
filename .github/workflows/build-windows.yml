@@ -625,7 +625,7 @@ jobs:
         cp -rf ../3dfx/build/*.{vxd,sys,dll,dxe,ovl,exe} ./wrapfx/
         cp -rf ../mesa/build/*.{dll,exe} ./wrapgl/
         cp -rf ../extra/g2xwrap/*.dll g2xwrap/
-        bash ../../scripts/sign_binary
+        bash "${GITHUB_WORKSPACE}/sign_binary.sh"
         cp ../texts/readme.txt readme.txt
         cp ../../LICENSE license.txt
         cp -rf ../texts/readme_icd.txt ../mesa/registry/*.reg wrapgl/icd
