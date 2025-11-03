@@ -627,7 +627,7 @@ jobs:
         cp -rf ../extra/g2xwrap/*.dll g2xwrap/
         bash "${GITHUB_WORKSPACE}/sign_binary.sh"
         cp ../texts/readme.txt readme.txt
-        cp ../../LICENSE license.txt
+        cp "${GITHUB_WORKSPACE}/qemu-3dfx-arch/LICENSE" license.txt
         cp -rf ../texts/readme_icd.txt ../mesa/registry/*.reg wrapgl/icd
         mv wrapgl/icd/readme_icd.txt wrapgl/icd/readme.txt
         mv wrapgl/qmfxgl32.dll wrapgl/icd/qmfxgl32.dll
