@@ -333,11 +333,43 @@ jobs:
           unix2dos version.txt
           echo "QEMU installation completed at $(date)"
 
+      - name: Setup optional wrapper build toolchains
+        shell: msys2 {0}
+        continue-on-error: true
+        run: |
+          echo "Setting up optional toolchains for wrapper builds"
+          
+          # Download Watcom (for DOS32 OVL wrappers)
+          echo "Downloading Open Watcom..."
+          wget -q https://github.com/open-watcom/open-watcom-v2/releases/download/2025-01-03-Build/ow-snapshot.tar.xz
+          
+          # Download DJGPP (for DOS32 DXE wrappers)
+          echo "Downloading DJGPP..."
+          wget -q https://github.com/andrewwutw/build-djgpp/releases/download/v3.4/djgpp-mingw-gcc1220.zip
+          
+          # Extract Watcom
+          mkdir -p watcom
+          echo "Extracting Watcom..."
+          tar xf ow-snapshot.tar.xz -C watcom
+          
+          # Extract DJGPP
+          echo "Extracting DJGPP..."
+          unzip -q djgpp-mingw-gcc1220.zip
+          cp -v djgpp/i586-pc-msdosdjgpp/bin/dxe* djgpp/bin/
+          
+          echo "✅ Optional toolchains installed"
+
       - name: Build Windows guest wrappers
         shell: msys2 {0}
         continue-on-error: true
         run: |
           echo "Building Windows guest wrappers"
+          
+          # Setup environment for optional toolchains
+          export WATCOM=$(pwd)/watcom
+          export PATH=$WATCOM/binnt:$PATH:$WATCOM/binw:$PATH
+          export EDPATH=$WATCOM/eddat
+          export PATH=$(pwd)/djgpp/bin:$PATH
           
           # Check if wrapper build components exist
           if [[ ! -d "wrappers/3dfx" ]]; then
@@ -349,22 +381,47 @@ jobs:
           cd wrappers/3dfx
           if [[ -f "../../scripts/conf_wrapper" ]]; then
             mkdir -p build && cd build
-            bash ../../../scripts/conf_wrapper || true
-            make || true
-            make clean || true
-            echo "3dfx wrappers built successfully"
+            bash ../../../scripts/conf_wrapper
+            if [[ $? -eq 0 ]]; then
+              echo "Configuration successful, building wrappers..."
+              make
+              if [[ $? -eq 0 ]]; then
+                echo "✅ 3dfx wrappers built successfully"
+                # List what was built
+                ls -la *.{vxd,sys,dll,dxe,ovl,exe} 2>/dev/null || echo "No wrapper files found"
+                # Clean source files but keep binaries
+                make clean
+              else
+                echo "❌ 3dfx wrapper build failed"
+              fi
+            else
+              echo "❌ 3dfx wrapper configuration failed"
+            fi
           else
             echo "conf_wrapper script not found, skipping 3dfx wrapper build"
           fi
           
-          echo "Building Mesa wrappers"
-          cd ../../mesa
-          if [[ -d "../mesa" ]]; then
+          echo "Building Mesa wrappers (with ICD support)"
+          cd "${GITHUB_WORKSPACE}/wrappers/mesa"
+          if [[ -d "src" ]]; then
             mkdir -p build && cd build
-            bash ../../../scripts/conf_wrapper || true
-            make || true
-            make clean || true
-            echo "Mesa wrappers built successfully"
+            bash ../../../scripts/conf_wrapper
+            if [[ $? -eq 0 ]]; then
+              echo "Configuration successful, building Mesa wrappers with ICD support..."
+              # Use 'make all+' to build everything including ICD support
+              make all+
+              if [[ $? -eq 0 ]]; then
+                echo "✅ Mesa wrappers built successfully (with ICD)"
+                # List what was built
+                ls -la *.{dll,exe} 2>/dev/null || echo "No Mesa wrapper files found"
+                # Clean source files but keep binaries
+                make clean
+              else
+                echo "❌ Mesa wrapper build failed"
+              fi
+            else
+              echo "❌ Mesa wrapper configuration failed"
+            fi
           else
             echo "Mesa wrapper directory not found, skipping Mesa wrapper build"
           fi
@@ -378,28 +435,87 @@ jobs:
           # Navigate to wrappers directory (follows symlink in MSYS2)
           cd wrappers
           
-          # Create wrapper structure if components exist
+          # Debug: Show wrapper build structure
+          echo "=== Checking wrapper build directories ==="
+          echo "3dfx/build contents:"
+          ls -la 3dfx/build/ 2>/dev/null || echo "  Directory not found or empty"
+          echo "mesa/build contents:"
+          ls -la mesa/build/ 2>/dev/null || echo "  Directory not found or empty"
+          
+          # Create wrapper structure if components exist (including ICD subdirectory)
           if [[ -d "3dfx" || -d "mesa" ]]; then
-            mkdir -p iso/wrapfx iso/wrapgl
+            mkdir -p iso/wrapfx iso/wrapgl iso/wrapgl/icd
             
             # Copy 3dfx wrapper files if they exist
             if [[ -d "3dfx/build" ]]; then
-              cp -f 3dfx/build/*.{vxd,sys,dll,dxe,ovl,exe} iso/wrapfx/ 2>/dev/null || true
+              echo "Copying 3dfx wrapper files..."
+              COPIED_3DFX=0
+              for ext in vxd sys dll dxe ovl exe; do
+                if ls 3dfx/build/*.${ext} 1> /dev/null 2>&1; then
+                  cp -fv 3dfx/build/*.${ext} iso/wrapfx/ 2>/dev/null && COPIED_3DFX=1
+                fi
+              done
+              if [[ $COPIED_3DFX -eq 1 ]]; then
+                echo "✅ 3dfx wrapper files copied"
+              else
+                echo "⚠️ No 3dfx wrapper files found to copy"
+              fi
             fi
             
-            # Copy Mesa wrapper files if they exist
+            # Copy Mesa wrapper files if they exist (including ICD support)
             if [[ -d "mesa/build" ]]; then
-              cp -f mesa/build/*.{dll,exe} iso/wrapgl/ 2>/dev/null || true
+              echo "Copying Mesa wrapper files..."
+              COPIED_MESA=0
+              for ext in dll exe; do
+                if ls mesa/build/*.${ext} 1> /dev/null 2>&1; then
+                  cp -fv mesa/build/*.${ext} iso/wrapgl/ 2>/dev/null && COPIED_MESA=1
+                fi
+              done
+              
+              # Move qmfxgl32.dll to ICD subdirectory if it exists
+              if [[ -f "iso/wrapgl/qmfxgl32.dll" ]]; then
+                echo "Moving qmfxgl32.dll to ICD subdirectory..."
+                mv iso/wrapgl/qmfxgl32.dll iso/wrapgl/icd/
+              fi
+              
+              # Copy ICD registry files if they exist
+              if [[ -d "mesa/registry" ]]; then
+                echo "Copying ICD registry files..."
+                cp -fv mesa/registry/*.reg iso/wrapgl/icd/ 2>/dev/null || true
+              fi
+              
+              # Copy ICD readme if it exists
+              if [[ -f "texts/readme_icd.txt" ]]; then
+                cp -fv texts/readme_icd.txt iso/wrapgl/icd/readme.txt
+              fi
+              
+              if [[ $COPIED_MESA -eq 1 ]]; then
+                echo "✅ Mesa wrapper files copied (with ICD support)"
+              else
+                echo "⚠️ No Mesa wrapper files found to copy"
+              fi
             fi
             
             # Copy additional files if they exist
             cd iso
             [[ -f ../texts/readme.txt ]] && cp ../texts/readme.txt readme.txt
             [[ -f ../../LICENSE ]] && cp ../../LICENSE license.txt
+            
+            # Convert all text files to DOS format (CRLF)
             [[ -f autorun.inf ]] && unix2dos autorun.inf
             [[ -f open.bat ]] && unix2dos open.bat
             [[ -f readme.txt ]] && unix2dos readme.txt
             [[ -f license.txt ]] && unix2dos license.txt
+            
+            # Convert ICD files to DOS format
+            if [[ -d wrapgl/icd ]]; then
+              unix2dos wrapgl/icd/readme.txt 2>/dev/null || true
+              unix2dos wrapgl/icd/*.reg 2>/dev/null || true
+            fi
+            
+            # Debug: Show ISO contents before signing
+            echo "=== ISO directory structure before signing ==="
+            find . -type f -ls
             
             # Sign wrapper binaries using Windows-specific script
             if [[ -n "${{ github.event.inputs.commit_id }}" ]]; then
@@ -412,10 +528,18 @@ jobs:
             # Use GITHUB_WORKSPACE to find sign_binary.sh in repo root
             bash "${GITHUB_WORKSPACE}/sign_binary.sh"
             
+            # Debug: Show final ISO contents
+            echo "=== Final ISO directory structure ==="
+            find . -type f -ls
+            echo "=== wrapfx directory ==="
+            ls -la wrapfx/
+            echo "=== wrapgl directory ==="
+            ls -la wrapgl/
+            
             cd ..
             echo "Creating wrapper ISO"
             xorriso -as mkisofs -JR -V "QEMU3DFX-WRAPPERS-$(git log --format="%h" -n 1)" -o wrappers.iso iso
-            echo "Wrapper packaging completed at $(date)"
+            echo "✅ Wrapper packaging completed at $(date)"
           else
             echo "No wrapper components found, skipping wrapper packaging"
           fi
