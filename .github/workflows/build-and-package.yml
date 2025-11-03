@@ -197,6 +197,11 @@ jobs:
         }
         echo "✅ QEMU 3dfx verified successfully"
         
+        # Extract QEMU version dynamically
+        QEMU_VERSION=$(qemu-system-i386 --version | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        echo "QEMU_VERSION=${QEMU_VERSION}" >> $GITHUB_ENV
+        echo "📦 Detected QEMU version: ${QEMU_VERSION}"
+        
     - name: Test 3dfx device availability
       if: steps.should_run.outputs.should_run == 'true'
       run: |
@@ -401,7 +406,7 @@ jobs:
         echo "Build Date: $(date)" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
         echo "Commit: ${COMMIT_SHORT}" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
         echo "Full Commit: ${COMMIT_FULL}" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
-        echo "QEMU Version: 9.2.2" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
+        echo "QEMU Version: ${QEMU_VERSION}" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
         echo "Target Architecture: ${{ matrix.arch }}" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
         echo "Runner Architecture: ${{ matrix.runner_arch }}" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
         echo "Package Type: Homebrew" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
@@ -463,7 +468,7 @@ jobs:
       run: |
         cd staging
         
-        TARBALL_NAME="qemu-9.2.2-3dfx-${COMMIT_SHORT}-darwin-${{ matrix.arch }}.tar.zst"
+        TARBALL_NAME="qemu-${QEMU_VERSION}-3dfx-${COMMIT_SHORT}-darwin-${{ matrix.arch }}.tar.zst"
         
         # Create compressed tarball from the contents of the staging directory
         # This ensures the tarball contains opt/ and usr/ at the root level
@@ -543,8 +548,8 @@ jobs:
       run: |
         cd artifacts
         
-        # Find the tarball
-        TARBALL=$(ls qemu-9.2.2-3dfx-*.tar.zst)
+        # Find the tarball (version-agnostic pattern)
+        TARBALL=$(ls qemu-*-3dfx-*.tar.zst)
         echo "Testing tarball: ${TARBALL}"
         
         # Verify checksum
@@ -635,6 +640,21 @@ jobs:
         fi
         echo "COMMIT_SHORT=${COMMIT_SHORT}" >> $GITHUB_ENV
         
+    - name: Calculate build number from git tags
+      run: |
+        # Fetch all tags
+        git fetch --tags
+        
+        # Count existing homebrew release tags
+        EXISTING_TAGS=$(git tag --list "qemu-3dfx-homebrew-*" | wc -l | tr -d ' ')
+        BUILD_NUMBER=$EXISTING_TAGS
+        
+        echo "📊 Found ${EXISTING_TAGS} existing Homebrew release tags"
+        echo "🔢 Next build number: ${BUILD_NUMBER}"
+        
+        # Export for use in subsequent steps
+        echo "BUILD_NUMBER=${BUILD_NUMBER}" >> $GITHUB_ENV
+        
     - name: Download all artifacts
       uses: actions/download-artifact@v4
       with:
@@ -663,15 +683,19 @@ jobs:
     - name: Generate release notes
       run: |
         RELEASE_TAG="v$(date +%Y%m%d)-${COMMIT_SHORT}"
+        
+        # Detect QEMU version from first tarball
+        QEMU_VERSION=$(ls release-assets/qemu-*-3dfx-*.tar.zst | head -1 | grep -oE 'qemu-[0-9]+\.[0-9]+\.[0-9]+' | sed 's/qemu-//')
+        
         cat > release-notes.md << EOF
         # QEMU 3dfx Homebrew Package ${RELEASE_TAG}
         
-        This release includes QEMU 9.2.2 with 3dfx Glide and Mesa GL pass-through support, packaged in Homebrew-compatible format.
+        This release includes QEMU ${QEMU_VERSION} with 3dfx Glide and Mesa GL pass-through support, packaged in Homebrew-compatible format.
         
         ## Build Information
         - **Commit**: ${COMMIT_SHORT}
         - **Build Date**: $(date +%Y-%m-%d)
-        - **QEMU Version**: 9.2.2
+        - **QEMU Version**: ${QEMU_VERSION}
         - **Package Type**: Homebrew-compatible
         
         ## Supported Architectures
@@ -683,9 +707,17 @@ jobs:
         1. Download the appropriate tarball for your architecture
         2. Verify the checksum: \`shasum -a 256 -c <tarball>.sha256\`
         3. Extract with sudo: \`sudo tar --zstd -xf <tarball> -C /\`
-        4. **If not auto-signed**: Sign the binaries: \`cd /opt/homebrew/sign && sudo bash ./qemu.sign\`
+        4. **If not auto-signed**: Sign the binaries using these commands:
+        
+        \`\`\`bash
+        cd \$(brew --prefix qemu-3dfx)/sign
+        export QEMU_3DFX_COMMIT=${COMMIT_SHORT}
+        sudo /usr/bin/xattr -c ../bin/qemu-system-* ../bin/qemu-* ../lib/*.dylib
+        sudo -E bash ./qemu.sign
+        \`\`\`
         
         > **Note**: Auto-signed packages are ready to use immediately after extraction.
+        > The \`xattr -c\` command removes quarantine attributes, and \`-E\` preserves environment variables for sudo.
         
         ## Package Structure
         
@@ -728,8 +760,8 @@ jobs:
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: qemu-3dfx-homebrew-${{ github.run_number }}
-        name: QEMU 3dfx Homebrew Package ${{ github.run_number }}
+        tag_name: qemu-3dfx-homebrew-${{ env.BUILD_NUMBER }}
+        name: QEMU 3dfx Homebrew Package ${{ env.BUILD_NUMBER }}
         body_path: release-notes.md
         files: release-assets/*
         draft: false

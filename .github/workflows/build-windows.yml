@@ -488,6 +488,22 @@ jobs:
         git submodule update --remote
         echo "✅ Git submodules initialized and updated"
         
+    - name: Calculate build number from git tags
+      shell: pwsh
+      run: |
+        # Fetch all tags
+        git fetch --tags
+        
+        # Count existing windows release tags
+        $existingTags = git tag --list "qemu-3dfx-windows-*" | Measure-Object | Select-Object -ExpandProperty Count
+        $buildNumber = $existingTags
+        
+        Write-Host "📊 Found $existingTags existing Windows release tags"
+        Write-Host "🔢 Next build number: $buildNumber"
+        
+        # Export for use in subsequent steps
+        Write-Output "BUILD_NUMBER=$buildNumber" | Out-File -FilePath $env:GITHUB_ENV -Append
+        
     - name: Download all artifacts
       uses: actions/download-artifact@v4
       with:
@@ -528,19 +544,20 @@ jobs:
     - name: Generate Windows release notes
       shell: pwsh
       run: |
-        $releaseTag = "windows-v$(Get-Date -Format 'yyyyMMdd')-$env:GITHUB_RUN_NUMBER"
+        $buildNumber = $env:BUILD_NUMBER
+        $releaseTag = "windows-v$(Get-Date -Format 'yyyyMMdd')-$buildNumber"
         $qemuVersion = "10.1.0"  # Match the QEMU_VERSION from env
         
         # Create release notes content
         $content = @()
-        $content += "# QEMU 3dfx Windows Build $releaseTag"
+        $content += "# QEMU 3dfx Windows Build $buildNumber"
         $content += ""
         $content += "This release includes QEMU $qemuVersion with 3dfx Glide and Mesa GL pass-through support for Windows."
         $content += ""
         $content += "## Build Information"
         $content += "- **Build Date**: $(Get-Date -Format 'yyyy-MM-dd')"
         $content += "- **QEMU Version**: $qemuVersion"
-        $content += "- **Run Number**: $env:GITHUB_RUN_NUMBER"
+        $content += "- **Build Number**: $buildNumber"
         $content += "- **Commit**: $env:GITHUB_SHA"
         $content += "- **Custom Commit ID**: ${{ github.event.inputs.commit_id || 'auto-detected' }}"
         $content += ""
@@ -608,8 +625,8 @@ jobs:
     - name: Create GitHub Release for Windows
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: qemu-3dfx-windows-${{ github.run_number }}
-        name: QEMU 3dfx Windows Build ${{ github.run_number }}
+        tag_name: qemu-3dfx-windows-${{ env.BUILD_NUMBER }}
+        name: QEMU 3dfx Windows Build ${{ env.BUILD_NUMBER }}
         body_path: release-notes.md
         files: release-assets/*
         draft: false
