@@ -270,6 +270,9 @@ echo "=== Step 5: Configuring and Building QEMU ==="
 # Remove -flto=auto from flags (as in build.yaml configure step)
 export CFLAGS="${CFLAGS//-flto=auto/}"
 export CXXFLAGS="${CXXFLAGS//-flto=auto/}"
+# Add QEMU include/ to -I path so <GL/glcorearb.h> is found
+export CFLAGS="$CFLAGS -I$QEMU_SRC_DIR/qemu-src/include"
+export CXXFLAGS="$CXXFLAGS -I$QEMU_SRC_DIR/qemu-src/include"
 export LDFLAGS="${LDFLAGS//-flto=auto/}"
 
 # Apple framework linker flags for SDL2
