@@ -227,10 +227,20 @@ echo
 echo "Applying qemu-3dfx patch stack via apply_qemu_patches.sh..."
 
 cd "$ARCH_SUBMODULE"
-bash scripts/apply_qemu_patches.sh \
-    --src-dir "$QEMU_SRC_DIR/qemu-src" \
-    --primary-patch "$ARCH_SUBMODULE/$PRIMARY_PATCH" \
-    --with-qemu-exp
+PATCH_ARGS=(
+    --src-dir "$QEMU_SRC_DIR/qemu-src"
+    --primary-patch "$ARCH_SUBMODULE/$PRIMARY_PATCH"
+)
+case "${QEMU_3DFX_EXPERIMENTAL_PATCHES,,}" in
+    true|1|yes|on)
+        PATCH_ARGS+=(--with-qemu-exp)
+        echo "✅ Experimental patches ENABLED"
+        ;;
+    *)
+        echo "ℹ️  Experimental patches DISABLED"
+        ;;
+esac
+bash scripts/apply_qemu_patches.sh "${PATCH_ARGS[@]}"
 
 echo "All patches applied!"
 
