@@ -60,7 +60,16 @@ echo "Installing Xcode command line tools..."
 xcode-select --install 2>/dev/null || true
 
 echo "Installing build tools and dependencies..."
-brew install git wget meson ninja pkg-config libepoxy \
+
+# Install ANGLE (provides libEGL.dylib, libGLESv2.dylib for macOS via Metal)
+brew tap startergo/angle
+brew install startergo/angle/angle
+
+# Install patched libepoxy with EGL 1.5 support on macOS
+brew tap startergo/libepoxy
+brew install startergo/libepoxy/libepoxy
+
+brew install git wget meson ninja pkg-config \
     capstone glib gettext gnutls libgcrypt libslirp libusb jpeg-turbo \
     lz4 opus sdl2 zstd swtpm libffi ncurses pixman sdl2_image \
     spice-protocol spice-server libx11 libxext libxfixes libxrandr \
@@ -72,7 +81,7 @@ echo
 # ── Step 2.5: Setup Build Environment ──────────────────────────────────
 echo "=== Step 2.5: Setup Build Environment ==="
 
-export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig"
+export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:/opt/homebrew/opt/angle/lib/pkgconfig"
 echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
 
 # Verify OpenGL framework
@@ -271,14 +280,6 @@ echo "All patches applied!"
 
 # macOS fixes after patching
 cd "$QEMU_SRC_DIR/qemu-src"
-
-# macOS has no EGL headers — soften the check so --enable-opengl works
-sed -i '' "s/error('epoxy\/egl.h not found')/warning('epoxy\/egl.h not found - EGL disabled')/" meson.build
-
-# Add missing EGLNativeDisplayType typedef for macOS (used by QEMU 11.0.0 egl-helpers.h)
-# The virgil3d patch stubs out EGL types but missed this one
-sed -i '' 's/typedef int EGLNativeWindowType;/typedef int EGLNativeDisplayType;\
-typedef int EGLNativeWindowType;/' include/ui/egl-helpers.h
 
 # Fix macOS OpenGL context attribute name
 sed -i '' 's/GL_CONTEXTALPHA/GLX_ALPHA_SIZE/' hw/mesa/mglcntx_linux.c 2>/dev/null || true
