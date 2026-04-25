@@ -231,7 +231,7 @@ PATCH_ARGS=(
     --src-dir "$QEMU_SRC_DIR/qemu-src"
     --primary-patch "$ARCH_SUBMODULE/$PRIMARY_PATCH"
 )
-case "${QEMU_3DFX_EXPERIMENTAL_PATCHES,,}" in
+case "$(echo "${QEMU_3DFX_EXPERIMENTAL_PATCHES}" | tr '[:upper:]' '[:lower:]')" in
     true|1|yes|on)
         PATCH_ARGS+=(--with-qemu-exp)
         echo "✅ Experimental patches ENABLED"
