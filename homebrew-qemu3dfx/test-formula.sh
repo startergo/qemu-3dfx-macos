@@ -247,6 +247,14 @@ echo "All patches applied!"
 # macOS fixes after patching
 cd "$QEMU_SRC_DIR/qemu-src"
 
+# macOS doesn't ship GL/glcorearb.h — clone the Khronos OpenGL Registry for GL headers
+if [ ! -d "$QEMU_SRC_DIR/OpenGL-Registry" ]; then
+    echo "Cloning Khronos OpenGL-Registry for GL headers..."
+    git clone --depth 1 https://github.com/KhronosGroup/OpenGL-Registry.git "$QEMU_SRC_DIR/OpenGL-Registry"
+fi
+mkdir -p include/GL
+cp "$QEMU_SRC_DIR/OpenGL-Registry/api/GL/"* include/GL/
+
 # Fix macOS OpenGL context attribute name
 sed -i '' 's/GL_CONTEXTALPHA/GLX_ALPHA_SIZE/' hw/mesa/mglcntx_linux.c 2>/dev/null || true
 
