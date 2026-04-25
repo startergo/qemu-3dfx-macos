@@ -59,8 +59,8 @@ echo "=== Step 2: Installing Dependencies ==="
 echo "Installing Xcode command line tools..."
 xcode-select --install 2>/dev/null || true
 
-echo "Installing build tools..."
-brew install git wget meson ninja pkg-config
+echo "Installing build tools and dependencies..."
+brew install git wget meson ninja pkg-config libepoxy
 
 echo "Formula will handle remaining dependencies during build"
 echo
