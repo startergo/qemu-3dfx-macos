@@ -285,6 +285,9 @@ cd "$QEMU_SRC_DIR/qemu-src"
 # Fix macOS OpenGL context attribute name
 sed -i '' 's/GL_CONTEXTALPHA/GLX_ALPHA_SIZE/' hw/mesa/mglcntx_linux.c 2>/dev/null || true
 
+# ANGLE defines EGLNativeDisplayType as int on macOS, but eglGetPlatformDisplayEXT expects void*
+sed -i '' 's/eglGetPlatformDisplayEXT(platform, native, NULL)/eglGetPlatformDisplayEXT(platform, (void *)(intptr_t)native, NULL)/' ui/egl-helpers.c
+
 echo
 
 # ── Step 5: Configure and build QEMU ───────────────────────────────────
