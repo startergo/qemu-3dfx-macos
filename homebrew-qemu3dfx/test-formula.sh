@@ -59,10 +59,10 @@ echo "=== Step 2: Installing Dependencies ==="
 echo "Installing Xcode command line tools..."
 xcode-select --install 2>/dev/null || true
 
-echo "Installing additional tools..."
-brew install git wget
+echo "Installing build tools..."
+brew install git wget meson ninja pkg-config
 
-echo "Formula will handle all dependencies during build"
+echo "Formula will handle remaining dependencies during build"
 echo
 
 # ── Step 2.5: Setup Build Environment ──────────────────────────────────
@@ -173,9 +173,12 @@ echo "Building virglrenderer..."
 # Install PyYAML if needed (PKGBUILD uses a venv)
 python3 -m pip install --break-system-packages PyYAML 2>/dev/null || true
 
+# Ensure Homebrew meson/ninja are in PATH
+export PATH="$(brew --prefix)/bin:$PATH"
+
 mkdir -p build
 cd build
-meson setup .. \
+"$(brew --prefix)/bin/meson" setup .. \
     --prefix="$VIRGL_PREFIX" \
     --buildtype=release \
     -Dtests=false \
@@ -183,8 +186,8 @@ meson setup .. \
     -Dminigbm_allocation=false \
     -Dvenus=false
 
-ninja -j$(sysctl -n hw.ncpu)
-ninja install
+"$(brew --prefix)/bin/ninja" -j$(sysctl -n hw.ncpu)
+"$(brew --prefix)/bin/ninja" install
 
 # Update PKG_CONFIG_PATH to include our custom virglrenderer
 export PKG_CONFIG_PATH="$VIRGL_PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH"
