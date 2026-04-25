@@ -62,6 +62,7 @@ xcode-select --install 2>/dev/null || true
 echo "Installing build tools and dependencies..."
 
 # Install ANGLE (provides libEGL.dylib, libGLESv2.dylib for macOS via Metal)
+brew tap startergo/gn
 brew tap startergo/angle
 brew install startergo/angle/angle
 
