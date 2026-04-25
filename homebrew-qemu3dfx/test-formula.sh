@@ -215,7 +215,7 @@ echo "Applying qemu-3dfx patch stack via apply_qemu_patches.sh..."
 cd "$ARCH_SUBMODULE"
 bash scripts/apply_qemu_patches.sh \
     --src-dir "$QEMU_SRC_DIR/qemu-src" \
-    --primary-patch "$PRIMARY_PATCH" \
+    --primary-patch "$ARCH_SUBMODULE/$PRIMARY_PATCH" \
     --with-qemu-exp
 
 echo "All patches applied successfully!"
