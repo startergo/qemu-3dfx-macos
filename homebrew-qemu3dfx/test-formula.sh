@@ -221,15 +221,31 @@ bash scripts/apply_qemu_patches.sh \
 echo "Applying qemu-exp patches..."
 cd "$QEMU_SRC_DIR/qemu-src"
 
-# SDL clipboard — non-fatal, may fail on context mismatch
+# SDL clipboard — try the upstream patch, then apply with path fixing
 echo "  Applying qemu-sdl-clipboard.patch..."
-if ! git apply "$ARCH_SUBMODULE/qemu-exp/qemu-sdl-clipboard.patch" 2>/dev/null; then
-    echo "  git apply failed, trying patch utility..."
-    if ! patch -p1 -i "$ARCH_SUBMODULE/qemu-exp/qemu-sdl-clipboard.patch"; then
-        echo "  WARNING: SDL clipboard patch failed (non-fatal, continuing)"
-        # Clean up reject files
-        rm -f *.rej */*.rej 2>/dev/null || true
+if git apply "$ARCH_SUBMODULE/qemu-exp/qemu-sdl-clipboard.patch" 2>/dev/null; then
+    echo "  Applied via git apply"
+else
+    echo "  git apply failed, fixing patch paths for QEMU 11.0.0 compatibility..."
+    rm -f *.rej */*.rej 2>/dev/null || true
+
+    # Strip version-specific directory prefixes from the patch so paths match QEMU 11.0.0
+    FIXED_PATCH="/tmp/sdl2-clipboard-fixed.patch"
+    sed -e 's|qemu-10\.1\.2-patched/||g' \
+        -e 's|qemu-10\.1\.2/||g' \
+        "$ARCH_SUBMODULE/qemu-exp/qemu-sdl-clipboard.patch" > "$FIXED_PATCH"
+
+    if ! git apply --3way "$FIXED_PATCH" 2>/dev/null; then
+        if ! patch -p1 --fuzz=3 -i "$FIXED_PATCH"; then
+            echo "  WARNING: SDL clipboard patch failed after path fixing"
+            rm -f *.rej */*.rej 2>/dev/null || true
+        else
+            echo "  Applied via patch with fuzz"
+        fi
+    else
+        echo "  Applied via git apply --3way with fixed paths"
     fi
+    rm -f "$FIXED_PATCH"
 fi
 
 # WHPX patches — Windows-specific but apply cleanly via git
