@@ -76,6 +76,9 @@ brew install git wget meson ninja pkg-config \
     spice-protocol spice-server libx11 libxext libxfixes libxrandr \
     libxinerama libxi libxcursor xorgproto libxxf86vm mesa
 
+# Force-link mesa — conflicts with angle (EGL/) and xorgproto (GL/)
+brew link --overwrite mesa 2>/dev/null || true
+
 echo "Dependencies installed"
 echo
 
