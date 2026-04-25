@@ -153,9 +153,6 @@ echo "🧪 Setting up experimental patches flag (replicating workflow behavior).
 echo "true" > /tmp/apply_experimental_patches
 echo "📝 Created flag file: /tmp/apply_experimental_patches with value 'true'"
 
-# Note: SPICE dependencies will be automatically installed by the formula
-echo "=== SPICE dependencies will be handled automatically ==="
-
 # Use verbose mode to see detailed output and force clean build
 echo "Running brew install with experimental patches enabled..."
 echo "📝 Using --force to ensure clean build..."

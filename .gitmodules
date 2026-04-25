@@ -4,4 +4,5 @@
 	branch = master
 [submodule "qemu-3dfx-arch"]
 	path = qemu-3dfx-arch
-	url = https://github.com/kharovtobi/qemu-3dfx-arch.git
+	url = https://github.com/startergo/qemu-3dfx-arch.git
+	branch = master
