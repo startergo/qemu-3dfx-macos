@@ -74,7 +74,7 @@ brew install git wget meson ninja pkg-config \
     capstone glib gettext gnutls libgcrypt libslirp libusb jpeg-turbo \
     lz4 opus sdl2 zstd swtpm libffi ncurses pixman sdl2_image \
     spice-protocol spice-server libx11 libxext libxfixes libxrandr \
-    libxinerama libxi libxcursor xorgproto libxxf86vm
+    libxinerama libxi libxcursor xorgproto libxxf86vm mesa
 
 echo "Dependencies installed"
 echo
@@ -247,14 +247,6 @@ echo "All patches applied!"
 # macOS fixes after patching
 cd "$QEMU_SRC_DIR/qemu-src"
 
-# macOS doesn't ship GL/glcorearb.h — clone the Khronos OpenGL Registry for GL headers
-if [ ! -d "$QEMU_SRC_DIR/OpenGL-Registry" ]; then
-    echo "Cloning Khronos OpenGL-Registry for GL headers..."
-    git clone --depth 1 https://github.com/KhronosGroup/OpenGL-Registry.git "$QEMU_SRC_DIR/OpenGL-Registry"
-fi
-mkdir -p include/GL
-cp "$QEMU_SRC_DIR/OpenGL-Registry/api/GL/"* include/GL/
-
 # Fix macOS OpenGL context attribute name
 sed -i '' 's/GL_CONTEXTALPHA/GLX_ALPHA_SIZE/' hw/mesa/mglcntx_linux.c 2>/dev/null || true
 
@@ -270,9 +262,6 @@ echo "=== Step 5: Configuring and Building QEMU ==="
 # Remove -flto=auto from flags (as in build.yaml configure step)
 export CFLAGS="${CFLAGS//-flto=auto/}"
 export CXXFLAGS="${CXXFLAGS//-flto=auto/}"
-# Add QEMU include/ to -I path so <GL/glcorearb.h> is found
-export CFLAGS="$CFLAGS -I$QEMU_SRC_DIR/qemu-src/include"
-export CXXFLAGS="$CXXFLAGS -I$QEMU_SRC_DIR/qemu-src/include"
 export LDFLAGS="${LDFLAGS//-flto=auto/}"
 
 # Apple framework linker flags for SDL2
