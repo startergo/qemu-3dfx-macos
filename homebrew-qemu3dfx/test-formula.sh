@@ -236,14 +236,16 @@ else
     patch -p1 -i "$ARCH_SUBMODULE/qemu-exp/qemu-sdl-clipboard.patch" || true
 
     # Fix the failing hunk in include/ui/sdl2.h — add QemuClipboardPeer after kbd
+    # Only add if not already present (patch may have applied the hunk despite reject file)
     if [ -f "include/ui/sdl2.h.rej" ]; then
         echo "  Fixing rejected sdl2.h hunk manually..."
-        # Add QemuClipboardPeer member after QKbdState *kbd
-        sed -i '' '/QKbdState \*kbd;$/a\
+        if ! grep -q "QemuClipboardPeer cbpeer" include/ui/sdl2.h; then
+            sed -i '' '/QKbdState \*kbd;$/a\
 #ifdef CONFIG_SDL_CLIPBOARD\
     QemuClipboardPeer cbpeer;\
 #endif
 ' include/ui/sdl2.h
+        fi
         rm -f include/ui/sdl2.h.rej
     fi
 
@@ -272,6 +274,11 @@ cd "$QEMU_SRC_DIR/qemu-src"
 
 # macOS has no EGL headers — soften the check so --enable-opengl works
 sed -i '' "s/error('epoxy\/egl.h not found')/warning('epoxy\/egl.h not found - EGL disabled')/" meson.build
+
+# Add missing EGLNativeDisplayType typedef for macOS (used by QEMU 11.0.0 egl-helpers.h)
+# The virgil3d patch stubs out EGL types but missed this one
+sed -i '' 's/typedef int EGLNativeWindowType;/typedef int EGLNativeDisplayType;\
+typedef int EGLNativeWindowType;/' include/ui/egl-helpers.h
 
 # Fix macOS OpenGL context attribute name
 sed -i '' 's/GL_CONTEXTALPHA/GLX_ALPHA_SIZE/' hw/mesa/mglcntx_linux.c 2>/dev/null || true
