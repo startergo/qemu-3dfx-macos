@@ -168,17 +168,14 @@ jobs:
         esac
         
         cd homebrew-qemu3dfx
-        
-        # Create temp files for all environment variables (backup method for Homebrew environment sanitization)
+
+        # Create temp files for environment variables
         echo "${{ github.workspace }}" > /tmp/qemu_3dfx_repo_root
         echo "${COMMIT_SHORT}" > /tmp/qemu_3dfx_commit_override
-        echo "${QEMU_3DFX_EXPERIMENTAL_PATCHES}" > /tmp/apply_experimental_patches
-        
-        echo "Created temp files with build configuration:"
-        echo "  Repository root: $(cat /tmp/qemu_3dfx_repo_root)"
-        echo "  Commit ID: $(cat /tmp/qemu_3dfx_commit_override)"
-        echo "  Experimental patches: $(cat /tmp/apply_experimental_patches)"
-        
+
+        # test-formula.sh calls apply_qemu_patches.sh --with-qemu-exp unconditionally
+        # (matching build.yaml which always passes --with-qemu-exp)
+
         echo "Building and testing QEMU 3dfx using optimized test-formula.sh..."
 
         # Use the optimized test script - it handles everything internally  
@@ -542,7 +539,7 @@ jobs:
     - name: Install Xcode tools for signing
       run: |
         # Install required tools for code signing
-        brew install --cask xquartz || true  # For X11 tools
+        # brew install --cask xquartz || true  # For X11 tools
         
     - name: Test tarball extraction
       run: |

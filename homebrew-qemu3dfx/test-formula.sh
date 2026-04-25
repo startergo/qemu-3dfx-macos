@@ -2,6 +2,7 @@
 
 # Test script for QEMU 3dfx Homebrew formula
 # This script builds the formula from source and runs debugging tests
+# Patch stack replicated from qemu-3dfx-arch/.github/workflows/build.yaml
 
 set -e  # Exit on any error
 
@@ -9,11 +10,15 @@ echo "=== QEMU 3dfx Formula Test and Debug Script ==="
 echo "Starting at: $(date)"
 echo
 
-# Set up environment
+# ── Version configuration (must match build.yaml) ──────────────────────
+QEMU_VERSION="11.0.0"
+QEMU_REF="v${QEMU_VERSION}"
+PRIMARY_PATCH="00-qemu110x-mesa-glide.patch"
+
+# ── Set up environment ─────────────────────────────────────────────────
 export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_CLEANUP=1
 
-# Get the formula directory (relative to script location)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FORMULA_DIR="$SCRIPT_DIR"
 FORMULA_FILE="$FORMULA_DIR/Formula/qemu-3dfx.rb"
@@ -22,327 +27,295 @@ echo "Formula directory: $FORMULA_DIR"
 echo "Formula file: $FORMULA_FILE"
 echo
 
-# Check if formula file exists
 if [ ! -f "$FORMULA_FILE" ]; then
     echo "ERROR: Formula file not found at $FORMULA_FILE"
     exit 1
 fi
 
+# ── Locate submodule repository root ───────────────────────────────────
+# The qemu-3dfx-arch submodule contains the patches and scripts
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ARCH_SUBMODULE="$REPO_ROOT/qemu-3dfx-arch"
+
+if [ ! -d "$ARCH_SUBMODULE" ]; then
+    echo "ERROR: qemu-3dfx-arch submodule not found at $ARCH_SUBMODULE"
+    echo "Run: git submodule update --init --remote"
+    exit 1
+fi
+
+echo "Repository root: $REPO_ROOT"
+echo "qemu-3dfx-arch submodule: $ARCH_SUBMODULE"
+echo
+
+# ── Step 1: Validate Formula Syntax ────────────────────────────────────
 echo "=== Step 1: Validating Formula Syntax ==="
 cd "$FORMULA_DIR"
 echo "Skipping brew audit (requires tap) - will validate during install"
 echo
 
-echo "=== Step 2: Installing Dependencies (Replicating Workflow) ==="
+# ── Step 2: Install Dependencies ───────────────────────────────────────
+echo "=== Step 2: Installing Dependencies ==="
 
-# Install Xcode command line tools dependencies
 echo "Installing Xcode command line tools..."
 xcode-select --install 2>/dev/null || true
 
-# Install XQuartz (REQUIRED by KJ for Mesa GL context support)
-echo "Installing XQuartz..."
-brew install --cask xquartz
-
-# XQuartz needs to be properly initialized - create the expected directory structure
-echo "Setting up XQuartz directory structure..."
-sudo mkdir -p /opt/X11/lib /opt/X11/include
-
-# Link XQuartz libraries to expected location if they're not there yet
-if [ ! -d "/opt/X11/lib" ] || [ -z "$(ls -A /opt/X11/lib 2>/dev/null)" ]; then
-  echo "Setting up XQuartz library symlinks..."
-  # XQuartz installs to /usr/X11/lib on some systems, check multiple locations
-  for xquartz_lib in "/usr/X11/lib" "/System/Library/Frameworks/OpenGL.framework/Libraries" "/opt/homebrew/lib"; do
-    if [ -d "$xquartz_lib" ]; then
-      sudo ln -sf "$xquartz_lib"/*X11* /opt/X11/lib/ 2>/dev/null || true
-      sudo ln -sf "$xquartz_lib"/*GL* /opt/X11/lib/ 2>/dev/null || true
-    fi
-  done
-  
-  # If still empty, create minimal structure using Homebrew X11 libraries
-  if [ -z "$(ls -A /opt/X11/lib 2>/dev/null)" ]; then
-    echo "Creating X11 library structure using Homebrew libraries..."
-    sudo ln -sf /opt/homebrew/lib/libX11* /opt/X11/lib/
-    sudo ln -sf /opt/homebrew/lib/libXext* /opt/X11/lib/
-    sudo ln -sf /opt/homebrew/lib/libGL* /opt/X11/lib/ 2>/dev/null || true
-  fi
-fi
-
-# Install only dependencies not handled by the formula
-echo "Installing additional tools not in formula dependencies..."
+echo "Installing additional tools..."
 brew install git wget
 
-# Note: All dependencies including Python modules (PyYAML, distlib) will be automatically installed by the formula
-echo "Formula will handle all dependencies including Python modules during build"
-echo "Dependencies installed successfully"
+echo "Formula will handle all dependencies during build"
 echo
 
-echo "=== Step 2.5: Setup Build Environment (Replicating GitHub Actions) ==="
+# ── Step 2.5: Setup Build Environment ──────────────────────────────────
+echo "=== Step 2.5: Setup Build Environment ==="
 
-# Set PKG_CONFIG_PATH to match what the formula expects
 export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig"
+echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
 
-# Note: PKG_CONFIG_PATH will be automatically configured by Homebrew for formula dependencies
-echo "PKG_CONFIG_PATH will be configured automatically for formula dependencies"
-
-# The formula creates its own local header structure, so we don't need to manually copy to /usr/local
-# However, we need to ensure all dependencies are properly installed and available via pkg-config
-
-echo "Current PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
-
-# Note: All dependency verification will be handled automatically by the formula
-echo "Dependency verification will be performed automatically during formula installation"
-
-# Verify OpenGL framework is available
+# Verify OpenGL framework
 echo "Verifying OpenGL framework availability:"
 if [ -d "/System/Library/Frameworks/OpenGL.framework" ]; then
-  echo "✅ macOS OpenGL framework found"
-  
-  # Test if we can actually link against it
-  if echo '#include <OpenGL/OpenGL.h>
+    echo "  macOS OpenGL framework found"
+    if echo '#include <OpenGL/OpenGL.h>
 int main() { return 0; }' | clang -x c - -framework OpenGL -o /tmp/gl_test 2>/dev/null; then
-    echo "✅ OpenGL framework linkable"
-    rm -f /tmp/gl_test
-  else
-    echo "⚠️ OpenGL framework found but not linkable"
-  fi
+        echo "  OpenGL framework linkable"
+        rm -f /tmp/gl_test
+    else
+        echo "  WARNING: OpenGL framework found but not linkable"
+    fi
 else
-  echo "❌ macOS OpenGL framework missing"
+    echo "  WARNING: macOS OpenGL framework missing"
 fi
 
-# Check epoxy includes OpenGL support
-echo "Checking epoxy OpenGL support:"
+# Check epoxy
 if pkg-config --exists epoxy; then
-  echo "✅ libepoxy pkg-config available"
-  echo "  Cflags: $(pkg-config --cflags epoxy)"
-  echo "  Libs: $(pkg-config --libs epoxy)"
+    echo "  libepoxy pkg-config available"
 else
-  echo "❌ libepoxy pkg-config missing"
+    echo "  WARNING: libepoxy pkg-config missing"
 fi
 
 echo "Build environment setup complete"
 echo
 
-echo "=== Step 3: Building Formula (Verbose Mode) ==="
+# ── Step 3: Build virglrenderer (replicating build.yaml PKGBUILD) ──────
+echo "=== Step 3: Building virglrenderer (replicating MINGW-packages/PKGBUILD) ==="
 
-# Set up the same environment that GitHub Actions would have
-echo "🔧 Setting up build environment to match GitHub Actions..."
+VIRGL_VERSION="1.3.0"
+VIRGL_BUILD_DIR="/tmp/virglrenderer-build"
+VIRGL_PREFIX="$(brew --prefix)/opt/virglrenderer-3dfx"
 
-# Ensure we're in the right directory
-cd "$FORMULA_DIR"
+echo "Virglrenderer version: $VIRGL_VERSION"
+echo "Build directory: $VIRGL_BUILD_DIR"
+echo "Install prefix: $VIRGL_PREFIX"
 
-# Set environment variables that GitHub Actions sets automatically
-export CI=false  # Don't limit build parallelism 
-export HOMEBREW_NO_AUTO_UPDATE=1
-export HOMEBREW_NO_INSTALL_CLEANUP=1
-export HOMEBREW_NO_ANALYTICS=1
+# Clean any previous build
+rm -rf "$VIRGL_BUILD_DIR"
+mkdir -p "$VIRGL_BUILD_DIR"
+cd "$VIRGL_BUILD_DIR"
 
-# Set paths that match the formula expectations
-export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig"
+# Download virglrenderer source (matching PKGBUILD source)
+echo "Downloading virglrenderer ${VIRGL_VERSION}..."
+curl -L -o "virglrenderer-${VIRGL_VERSION}.tar.bz2" \
+    "https://gitlab.freedesktop.org/virgl/virglrenderer/-/archive/${VIRGL_VERSION}/virglrenderer-${VIRGL_VERSION}.tar.bz2"
 
-# Note: All dependency paths will be configured automatically by Homebrew
-echo "Dependency paths will be configured automatically by the formula"
+# Extract
+echo "Extracting virglrenderer..."
+tar -xjf "virglrenderer-${VIRGL_VERSION}.tar.bz2"
+cd "virglrenderer-${VIRGL_VERSION}"
 
-echo "Environment configured:"
-echo "  PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
-echo "  HOMEBREW_PREFIX: $(brew --prefix)"
+# Replicate PKGBUILD prepare() — apply all 6 patches from virgil3d/MINGW-packages/
+echo "Applying virglrenderer patches (replicating PKGBUILD prepare())..."
 
-# Replicate workflow's experimental patches setup
-echo "🧪 Setting up experimental patches flag (replicating workflow behavior)..."
+VIRGL_PATCHES_DIR="$ARCH_SUBMODULE/virgil3d/MINGW-packages"
 
-# Create flag file for Homebrew formula to read (matching workflow)
-echo "true" > /tmp/apply_experimental_patches
-echo "📝 Created flag file: /tmp/apply_experimental_patches with value 'true'"
+if [ ! -d "$VIRGL_PATCHES_DIR" ]; then
+    echo "ERROR: Virglrenderer patches not found at $VIRGL_PATCHES_DIR"
+    exit 1
+fi
 
-# Use verbose mode to see detailed output and force clean build
-echo "Running brew install with experimental patches enabled..."
-echo "📝 Using --force to ensure clean build..."
+# macOS-specific sed fixes (adapted from PKGBUILD MSYS fixes)
+# PKGBUILD: sed "s/\(error=switch\)/\1','\-Wno\-unknown\-attributes','\-Wno\-unused-parameter/" -i meson.build
+echo "  Adjusting meson.build compiler flags for macOS..."
+sed -i '' "s/\(error=switch\)/\1','-Wno-unknown-attributes','-Wno-unused-parameter/" meson.build
 
-# IMPORTANT: Reset Homebrew completely to avoid any cached state issues
-echo "🧹 Resetting Homebrew to ensure clean environment..."
-echo "Clearing all Homebrew caches..."
-brew cleanup --prune=all
-rm -rf "$(brew --cache)"
-echo "Clearing formula-specific build cache..."
-rm -rf "$(brew --cache)/downloads/qemu*"
-rm -rf "$(brew --cache)/Formula/qemu*"
+# PKGBUILD: sed "s/\(fvisibility=hidden\)/\1','\-mno\-ms\-bitfields/" -i meson.build
+# (mno-ms-bitfields is MSYS-specific, skip on macOS)
 
-# First, try to uninstall any existing installation to ensure clean state
-brew uninstall qemu-3dfx 2>/dev/null || echo "No existing installation to remove"
+# PKGBUILD: sed "s/\(strstr.*Quadro.*\ NULL\)/1\ ||\ \1/" -i src/vrend/vrend_renderer.c
+echo "  Patching vrend_renderer.c for non-Quadro GPUs..."
+sed -i '' "s/\(strstr.*Quadro.*\ NULL\)/1 || \1/" src/vrend/vrend_renderer.c
 
-# Clear any cached builds
-brew cleanup qemu-3dfx 2>/dev/null || true
+# Initialize git for patch application
+git init
+git add -A
+git commit -m "virglrenderer ${VIRGL_VERSION} source" --quiet
 
-# Note: pixman and all other dependencies will be handled by the formula
-echo "🔧 Dependencies including pixman will be installed automatically by formula"
+# Apply patch 0001 — main Windows/macOS compatibility (p2 as in PKGBUILD)
+echo "  Applying 0001-Virglrenderer-on-Windows-and-macOS.patch (p2)..."
+patch -p2 -i "$VIRGL_PATCHES_DIR/0001-Virglrenderer-on-Windows-and-macOS.patch"
 
-# Note: All build environment verification will be handled by the formula
-echo "🔍 Build environment will be verified automatically during formula installation"
+# Apply patches 0002-0006 (p1 as in PKGBUILD)
+for patch_num in 0002 0003 0004 0005 0006; do
+    patch_file="$VIRGL_PATCHES_DIR/${patch_num}-"*.patch
+    patch_file=$(ls $patch_file 2>/dev/null | head -1)
+    if [ -n "$patch_file" ] && [ -f "$patch_file" ]; then
+        echo "  Applying $(basename "$patch_file") (p1)..."
+        patch -p1 -i "$patch_file"
+    else
+        echo "  WARNING: Patch ${patch_num} not found in $VIRGL_PATCHES_DIR"
+    fi
+done
 
+echo "Virglrenderer patches applied successfully"
 
+# Build virglrenderer with meson (replicating PKGBUILD build())
+echo "Building virglrenderer..."
 
-# Install with verbose output and force clean build from source
-# Note: We use --build-from-source to apply patches during compilation
+# Install PyYAML if needed (PKGBUILD uses a venv)
+python3 -m pip install --break-system-packages PyYAML 2>/dev/null || true
 
-# Add essential Apple framework linker flags for SDL2 support on macOS
-echo "Setting up Apple framework linker flags for SDL2..."
+mkdir -p build
+cd build
+meson setup .. \
+    --prefix="$VIRGL_PREFIX" \
+    --buildtype=release \
+    -Dtests=false \
+    -Dplatforms= \
+    -Dminigbm_allocation=false \
+    -Dvenus=false
+
+ninja -j$(sysctl -n hw.ncpu)
+ninja install
+
+# Update PKG_CONFIG_PATH to include our custom virglrenderer
+export PKG_CONFIG_PATH="$VIRGL_PREFIX/lib/pkgconfig:$PKG_CONFIG_PATH"
+echo "virglrenderer installed. PKG_CONFIG_PATH updated."
+echo
+
+# ── Step 4: Download and patch QEMU (replicating build.yaml) ───────────
+echo "=== Step 4: Downloading and Patching QEMU (replicating build.yaml) ==="
+
+QEMU_SRC_DIR="/tmp/qemu-${QEMU_VERSION}-3dfx"
+
+# Clean any previous build
+rm -rf "$QEMU_SRC_DIR"
+mkdir -p "$QEMU_SRC_DIR"
+
+echo "Cloning QEMU source (ref: ${QEMU_REF})..."
+git clone --depth 1 --branch "$QEMU_REF" https://github.com/qemu/qemu.git "$QEMU_SRC_DIR/qemu-src"
+cd "$QEMU_SRC_DIR/qemu-src"
+echo "Fetched QEMU tag: $(git describe --tags)"
+echo
+
+# ── Apply patches using apply_qemu_patches.sh directly ──────────────────
+echo "Applying qemu-3dfx patch stack via apply_qemu_patches.sh..."
+
+cd "$ARCH_SUBMODULE"
+bash scripts/apply_qemu_patches.sh \
+    --src-dir "$QEMU_SRC_DIR/qemu-src" \
+    --primary-patch "$PRIMARY_PATCH" \
+    --with-qemu-exp
+
+echo "All patches applied successfully!"
+echo
+
+# ── Step 5: Configure and build QEMU ───────────────────────────────────
+echo "=== Step 5: Configuring and Building QEMU ==="
+
+# macOS-specific build adjustments
+# Remove -flto=auto from flags (as in build.yaml configure step)
+export CFLAGS="${CFLAGS//-flto=auto/}"
+export CXXFLAGS="${CXXFLAGS//-flto=auto/}"
+export LDFLAGS="${LDFLAGS//-flto=auto/}"
+
+# Apple framework linker flags for SDL2
 APPLE_FRAMEWORKS="-framework AudioToolbox -framework CoreAudio -framework CoreGraphics -framework CoreFoundation -framework AppKit -framework IOKit -framework ForceFeedback -framework GameController -framework Carbon -framework Cocoa -framework CoreHaptics -framework CoreVideo -framework Metal -framework MetalKit -framework OpenGL"
-
 export LDFLAGS="$LDFLAGS $APPLE_FRAMEWORKS"
 export LIBS="$LIBS $APPLE_FRAMEWORKS"
 
-echo "Added Apple framework linker flags for SDL2 support"
+# Create separate build directory (matching build.yaml: working-directory: ./build)
+QEMU_BUILD_DIR="$QEMU_SRC_DIR/build"
+mkdir -p "$QEMU_BUILD_DIR"
+cd "$QEMU_BUILD_DIR"
 
-# Create temporary local tap to satisfy Homebrew requirements
-echo "Creating temporary local tap structure..."
-TEMP_TAP_DIR="$(brew --repository)/Library/Taps/local/homebrew-qemu3dfx"
-mkdir -p "$TEMP_TAP_DIR/Formula"
-cp Formula/qemu-3dfx.rb "$TEMP_TAP_DIR/Formula/"
+echo "Configuring QEMU..."
+# Adapted from build.yaml configure — macOS equivalents of Windows flags
+../qemu-src/configure \
+    --target-list="x86_64-softmmu,i386-softmmu,aarch64-softmmu" \
+    --disable-werror \
+    --disable-stack-protector \
+    --disable-rust \
+    --enable-virglrenderer \
+    --enable-opengl \
+    --enable-sdl \
+    --enable-spice \
+    --enable-curses \
+    --enable-tpm \
+    --disable-gtk \
+    --disable-dbus-display \
+    --disable-docs \
+    --disable-cocoa \
+    --prefix="$QEMU_SRC_DIR/install_dir"
 
-# Install with verbose output and build from source to apply patches
-echo "Installing from temporary local tap..."
-brew install --verbose --build-from-source local/qemu3dfx/qemu-3dfx
+echo "Compiling QEMU..."
+ninja -j$(sysctl -n hw.ncpu)
 
-# Clean up temporary tap after installation
-echo "Cleaning up temporary tap..."
-rm -rf "$TEMP_TAP_DIR"
+echo "Installing QEMU..."
+ninja install
 
-
-
+echo "QEMU build complete!"
 echo
-echo "=== Step 4: Running Formula Tests ==="
-# Test the installed formula
-brew test qemu-3dfx
 
-echo
-echo "=== Step 5: Manual Verification ==="
-# Get the installation prefix
-QEMU_PREFIX=$(brew --prefix qemu-3dfx)
-echo "QEMU 3dfx installed at: $QEMU_PREFIX"
+# ── Step 6: Verification ───────────────────────────────────────────────
+echo "=== Step 6: Verification ==="
 
-# Detect host architecture
+INSTALL_DIR="$QEMU_SRC_DIR/install_dir"
 HOST_ARCH=$(uname -m)
+
+if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
+    QEMU_TEST_BIN="$INSTALL_DIR/bin/qemu-system-x86_64"
+    QEMU_NATIVE_BIN="$INSTALL_DIR/bin/qemu-system-aarch64"
+else
+    QEMU_TEST_BIN="$INSTALL_DIR/bin/qemu-system-x86_64"
+    QEMU_NATIVE_BIN="$INSTALL_DIR/bin/qemu-system-x86_64"
+fi
+
 echo "Host architecture: $HOST_ARCH"
 
-# Choose appropriate QEMU binary for testing
-if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
-    echo "🍎 Apple Silicon detected - testing both x86_64 (emulation) and aarch64 (native)"
-    QEMU_TEST_BIN="$QEMU_PREFIX/bin/qemu-system-x86_64"
-    QEMU_NATIVE_BIN="$QEMU_PREFIX/bin/qemu-system-aarch64"
-else
-    echo "🖥️ Intel Mac detected - testing x86_64 (native)"
-    QEMU_TEST_BIN="$QEMU_PREFIX/bin/qemu-system-x86_64"
-    QEMU_NATIVE_BIN="$QEMU_PREFIX/bin/qemu-system-x86_64"
-fi
-
-# Test version and 3dfx signature
+echo
 echo "Testing x86_64 version output:"
 "$QEMU_TEST_BIN" --version
-
-if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
-    echo
-    echo "Testing aarch64 version output (native on Apple Silicon):"
-    "$QEMU_NATIVE_BIN" --version
-fi
 
 echo
 echo "Checking for 3dfx signature:"
 if "$QEMU_TEST_BIN" --version | grep -q "qemu-3dfx"; then
-    echo "✅ 3dfx signature found in x86_64 binary"
-    "$QEMU_TEST_BIN" --version | grep "qemu-3dfx"
+    echo "  3dfx signature found in x86_64 binary"
 else
-    echo "❌ 3dfx signature NOT found in x86_64 binary"
-fi
-
-if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
-    if "$QEMU_NATIVE_BIN" --version | grep -q "qemu-3dfx"; then
-        echo "✅ 3dfx signature found in aarch64 binary"
-        "$QEMU_NATIVE_BIN" --version | grep "qemu-3dfx"
-    else
-        echo "❌ 3dfx signature NOT found in aarch64 binary"
-    fi
+    echo "  3dfx signature NOT found in x86_64 binary"
 fi
 
 echo
 echo "Checking for SDL clipboard support (experimental patch):"
 if strings "$QEMU_TEST_BIN" | grep -q "sdl2-clipboard"; then
-    echo "✅ SDL clipboard support found in x86_64 binary (experimental patch applied)"
+    echo "  SDL clipboard support found (experimental patch applied)"
 else
-    echo "❌ SDL clipboard support NOT found in x86_64 binary"
-fi
-
-if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
-    if strings "$QEMU_NATIVE_BIN" | grep -q "sdl2-clipboard"; then
-        echo "✅ SDL clipboard support found in aarch64 binary (experimental patch applied)"
-    else
-        echo "❌ SDL clipboard support NOT found in aarch64 binary"
-    fi
+    echo "  SDL clipboard support NOT found"
 fi
 
 echo
-echo "Checking SDL clipboard strings in x86_64 binary:"
-strings "$QEMU_TEST_BIN" | grep -i "clipboard" | head -5 || echo "No clipboard strings found"
-
-if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
-    echo
-    echo "Checking SDL clipboard strings in aarch64 binary:"
-    strings "$QEMU_NATIVE_BIN" | grep -i "clipboard" | head -5 || echo "No clipboard strings found"
-fi
-
-echo
-echo "Testing device enumeration:"
-echo "x86_64 binary devices:"
-"$QEMU_TEST_BIN" -device help | grep -E "virtio-vga|virtio-gpu|3dfx" || echo "No specialized devices found"
-
-if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
-    echo "aarch64 binary devices:"
-    "$QEMU_NATIVE_BIN" -device help | grep -E "virtio-vga|virtio-gpu" || echo "No VirtIO devices found"
-fi
+echo "Checking Virgl3D device support:"
+"$QEMU_TEST_BIN" -device help | grep -E "virtio-vga|virtio-gpu|3dfx" || echo "  No specialized devices found"
 
 echo
 echo "Testing display support:"
-echo "x86_64 display options:"
 "$QEMU_TEST_BIN" -display help
 
-if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
-    echo "aarch64 display options:"
-    "$QEMU_NATIVE_BIN" -display help
-fi
-
 echo
-echo "=== Performance Recommendations ==="
-if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
-    echo "🍎 Apple Silicon Performance Tips:"
-    echo "  For BEST performance: Use aarch64 guests (Linux ARM64, Windows ARM64)"
-    echo "  For x86_64 guests: Use hvf acceleration (-accel hvf)"
-    echo "  For retro gaming: x86_64 with 3dfx support works but is slower (emulation)"
-    echo "  
-    echo "  Example commands:"
-    echo "  # Native ARM64 Linux (fastest):"
-    echo "  $QEMU_NATIVE_BIN -accel hvf -M virt -cpu cortex-a72 -m 4G -device virtio-vga-gl -display sdl,gl=on"
-    echo "  
-    echo "  # x86_64 retro gaming (slower but supports 3dfx):"
-    echo "  $QEMU_TEST_BIN -accel hvf -M pc -cpu pentium3 -m 512M -device 3dfx,voodoo=voodoo2 -display sdl"
-else
-    echo "🖥️ Intel Mac Performance Tips:"
-    echo "  Use KVM acceleration when available (-enable-kvm)"
-    echo "  x86_64 guests run natively (no emulation overhead)"
-fi
-
-echo
-echo "=== Step 6: Checking Installation Structure ==="
-echo "Binary files:"
-ls -la "$QEMU_PREFIX/bin/"
-
-echo
-echo "Library files:"
-ls -la "$QEMU_PREFIX/lib/" | head -20
+echo "Installed binaries:"
+ls -la "$INSTALL_DIR/bin/"
 
 echo
 echo "=== Build and Test Complete ==="
 echo "Finished at: $(date)"
-
-# Cleanup
 echo
-echo "=== Cleanup ==="
-rm -f /tmp/apply_experimental_patches
-echo "Removed experimental patches flag file"
+echo "Install directory: $INSTALL_DIR"
+echo "Virglrenderer: $VIRGL_PREFIX"
