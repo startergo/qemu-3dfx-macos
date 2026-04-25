@@ -266,6 +266,16 @@ git apply "$ARCH_SUBMODULE/qemu-exp/qemu-sdl-gles-angle.patch" 2>/dev/null || \
     echo "  WARNING: SDL GLES/ANGLE patch failed"
 
 echo "All patches applied!"
+
+# macOS fixes after patching
+cd "$QEMU_SRC_DIR/qemu-src"
+
+# macOS has no EGL headers — soften the check so --enable-opengl works
+sed -i '' "s/error('epoxy\/egl.h not found')/warning('epoxy\/egl.h not found - EGL disabled')/" meson.build
+
+# Fix macOS OpenGL context attribute name
+sed -i '' 's/GL_CONTEXTALPHA/GLX_ALPHA_SIZE/' hw/mesa/mglcntx_linux.c 2>/dev/null || true
+
 echo
 
 # ── Step 5: Configure and build QEMU ───────────────────────────────────
