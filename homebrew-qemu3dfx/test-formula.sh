@@ -215,10 +215,38 @@ echo "Applying qemu-3dfx patch stack via apply_qemu_patches.sh..."
 cd "$ARCH_SUBMODULE"
 bash scripts/apply_qemu_patches.sh \
     --src-dir "$QEMU_SRC_DIR/qemu-src" \
-    --primary-patch "$ARCH_SUBMODULE/$PRIMARY_PATCH" \
-    --with-qemu-exp
+    --primary-patch "$ARCH_SUBMODULE/$PRIMARY_PATCH"
 
-echo "All patches applied successfully!"
+# Apply qemu-exp patches individually (macOS BSD patch has different fuzz handling than MSYS2 GNU patch)
+echo "Applying qemu-exp patches..."
+cd "$QEMU_SRC_DIR/qemu-src"
+
+# SDL clipboard — non-fatal, may fail on context mismatch
+echo "  Applying qemu-sdl-clipboard.patch..."
+if ! git apply "$ARCH_SUBMODULE/qemu-exp/qemu-sdl-clipboard.patch" 2>/dev/null; then
+    echo "  git apply failed, trying patch utility..."
+    if ! patch -p1 -i "$ARCH_SUBMODULE/qemu-exp/qemu-sdl-clipboard.patch"; then
+        echo "  WARNING: SDL clipboard patch failed (non-fatal, continuing)"
+        # Clean up reject files
+        rm -f *.rej */*.rej 2>/dev/null || true
+    fi
+fi
+
+# WHPX patches — Windows-specific but apply cleanly via git
+echo "  Applying whpx-i386-winhvemu-restore.patch..."
+git apply "$ARCH_SUBMODULE/qemu-exp/whpx-i386-winhvemu-restore.patch" 2>/dev/null || \
+    echo "  WARNING: WHPX restore patch skipped (Windows-only)"
+
+echo "  Applying whpx-unrecoverable-reset.patch..."
+git apply "$ARCH_SUBMODULE/qemu-exp/whpx-unrecoverable-reset.patch" 2>/dev/null || \
+    echo "  WARNING: WHPX reset patch skipped (Windows-only)"
+
+# SDL GLES/ANGLE — important for macOS OpenGL compatibility
+echo "  Applying qemu-sdl-gles-angle.patch..."
+git apply "$ARCH_SUBMODULE/qemu-exp/qemu-sdl-gles-angle.patch" 2>/dev/null || \
+    echo "  WARNING: SDL GLES/ANGLE patch failed"
+
+echo "All patches applied!"
 echo
 
 # ── Step 5: Configure and build QEMU ───────────────────────────────────
