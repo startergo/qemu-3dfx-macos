@@ -326,6 +326,7 @@ echo "Configuring QEMU..."
     --disable-dbus-display \
     --disable-docs \
     --disable-cocoa \
+    --meson-args=-Dsdl_clipboard=enabled \
     --prefix="$QEMU_SRC_DIR/install_dir"
 
 echo "Compiling QEMU..."
