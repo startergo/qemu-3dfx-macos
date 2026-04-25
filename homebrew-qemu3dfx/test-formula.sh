@@ -60,9 +60,13 @@ echo "Installing Xcode command line tools..."
 xcode-select --install 2>/dev/null || true
 
 echo "Installing build tools and dependencies..."
-brew install git wget meson ninja pkg-config libepoxy
+brew install git wget meson ninja pkg-config libepoxy \
+    capstone glib gettext gnutls libgcrypt libslirp libusb jpeg-turbo \
+    lz4 opus sdl2 zstd swtpm libffi ncurses pixman sdl2_image \
+    spice-protocol spice-server libx11 libxext libxfixes libxrandr \
+    libxinerama libxi libxcursor xorgproto libxxf86vm
 
-echo "Formula will handle remaining dependencies during build"
+echo "Dependencies installed"
 echo
 
 # ── Step 2.5: Setup Build Environment ──────────────────────────────────
@@ -221,31 +225,30 @@ bash scripts/apply_qemu_patches.sh \
 echo "Applying qemu-exp patches..."
 cd "$QEMU_SRC_DIR/qemu-src"
 
-# SDL clipboard — try the upstream patch, then apply with path fixing
+# SDL clipboard — try the upstream patch, then fix any remaining rejects
 echo "  Applying qemu-sdl-clipboard.patch..."
 if git apply "$ARCH_SUBMODULE/qemu-exp/qemu-sdl-clipboard.patch" 2>/dev/null; then
     echo "  Applied via git apply"
 else
-    echo "  git apply failed, fixing patch paths for QEMU 11.0.0 compatibility..."
-    rm -f *.rej */*.rej 2>/dev/null || true
+    # The patch was written for QEMU 10.1.2 — most hunks apply to 11.0.0
+    # but include/ui/sdl2.h has context changes. Apply what we can, fix the rest.
+    echo "  Applying with patch -p1 (allows partial application)..."
+    patch -p1 -i "$ARCH_SUBMODULE/qemu-exp/qemu-sdl-clipboard.patch" || true
 
-    # Strip version-specific directory prefixes from the patch so paths match QEMU 11.0.0
-    FIXED_PATCH="/tmp/sdl2-clipboard-fixed.patch"
-    sed -e 's|qemu-10\.1\.2-patched/||g' \
-        -e 's|qemu-10\.1\.2/||g' \
-        "$ARCH_SUBMODULE/qemu-exp/qemu-sdl-clipboard.patch" > "$FIXED_PATCH"
-
-    if ! git apply --3way "$FIXED_PATCH" 2>/dev/null; then
-        if ! patch -p1 --fuzz=3 -i "$FIXED_PATCH"; then
-            echo "  WARNING: SDL clipboard patch failed after path fixing"
-            rm -f *.rej */*.rej 2>/dev/null || true
-        else
-            echo "  Applied via patch with fuzz"
-        fi
-    else
-        echo "  Applied via git apply --3way with fixed paths"
+    # Fix the failing hunk in include/ui/sdl2.h — add QemuClipboardPeer after kbd
+    if [ -f "include/ui/sdl2.h.rej" ]; then
+        echo "  Fixing rejected sdl2.h hunk manually..."
+        # Add QemuClipboardPeer member after QKbdState *kbd
+        sed -i '' '/QKbdState \*kbd;$/a\
+#ifdef CONFIG_SDL_CLIPBOARD\
+    QemuClipboardPeer cbpeer;\
+#endif
+' include/ui/sdl2.h
+        rm -f include/ui/sdl2.h.rej
     fi
-    rm -f "$FIXED_PATCH"
+
+    rm -f *.rej */*.rej 2>/dev/null || true
+    echo "  SDL clipboard patch applied (with manual fixup)"
 fi
 
 # WHPX patches — Windows-specific but apply cleanly via git
