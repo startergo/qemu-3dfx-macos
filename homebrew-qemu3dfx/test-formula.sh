@@ -229,64 +229,8 @@ echo "Applying qemu-3dfx patch stack via apply_qemu_patches.sh..."
 cd "$ARCH_SUBMODULE"
 bash scripts/apply_qemu_patches.sh \
     --src-dir "$QEMU_SRC_DIR/qemu-src" \
-    --primary-patch "$ARCH_SUBMODULE/$PRIMARY_PATCH"
-
-# Apply qemu-exp patches individually (macOS BSD patch has different fuzz handling than MSYS2 GNU patch)
-echo "Applying qemu-exp patches..."
-cd "$QEMU_SRC_DIR/qemu-src"
-
-# SDL clipboard — try the upstream patch, then fix any remaining rejects
-echo "  Applying qemu-sdl-clipboard.patch..."
-if git apply "$ARCH_SUBMODULE/qemu-exp/qemu-sdl-clipboard.patch" 2>/dev/null; then
-    echo "  Applied via git apply"
-else
-    # The patch was written for QEMU 10.1.2 — most hunks apply to 11.0.0
-    # but include/ui/sdl2.h has context changes. Apply what we can, fix the rest.
-    echo "  Applying with patch -p1 (allows partial application)..."
-    patch -p1 -i "$ARCH_SUBMODULE/qemu-exp/qemu-sdl-clipboard.patch" || true
-
-    # Fix the failing hunk in include/ui/sdl2.h — add QemuClipboardPeer and prototypes
-    # Only add if not already present (patch may have applied the hunk despite reject file)
-    if [ -f "include/ui/sdl2.h.rej" ]; then
-        echo "  Fixing rejected sdl2.h hunk manually..."
-        if ! grep -q "QemuClipboardPeer cbpeer" include/ui/sdl2.h; then
-            sed -i '' '/QKbdState \*kbd;$/a\
-#ifdef CONFIG_SDL_CLIPBOARD\
-    QemuClipboardPeer cbpeer;\
-#endif
-' include/ui/sdl2.h
-        fi
-        # Add clipboard function prototypes before the closing #endif guard
-        if ! grep -q "sdl2_clipboard_init" include/ui/sdl2.h; then
-            sed -i '' '/#endif \/\* SDL2_H \*\//i\
-#ifdef CONFIG_SDL_CLIPBOARD\
-void sdl2_clipboard_init(struct sdl2_console *scon);\
-void sdl2_clipboard_handle_focus_change(struct sdl2_console *scon,\
-                                         bool gained_focus);\
-void sdl2_clipboard_handle_request(struct sdl2_console *scon);\
-#endif\
-' include/ui/sdl2.h
-        fi
-        rm -f include/ui/sdl2.h.rej
-    fi
-
-    rm -f *.rej */*.rej 2>/dev/null || true
-    echo "  SDL clipboard patch applied (with manual fixup)"
-fi
-
-# WHPX patches — Windows-specific but apply cleanly via git
-echo "  Applying whpx-i386-winhvemu-restore.patch..."
-git apply "$ARCH_SUBMODULE/qemu-exp/whpx-i386-winhvemu-restore.patch" 2>/dev/null || \
-    echo "  WARNING: WHPX restore patch skipped (Windows-only)"
-
-echo "  Applying whpx-unrecoverable-reset.patch..."
-git apply "$ARCH_SUBMODULE/qemu-exp/whpx-unrecoverable-reset.patch" 2>/dev/null || \
-    echo "  WARNING: WHPX reset patch skipped (Windows-only)"
-
-# SDL GLES/ANGLE — important for macOS OpenGL compatibility
-echo "  Applying qemu-sdl-gles-angle.patch..."
-git apply "$ARCH_SUBMODULE/qemu-exp/qemu-sdl-gles-angle.patch" 2>/dev/null || \
-    echo "  WARNING: SDL GLES/ANGLE patch failed"
+    --primary-patch "$ARCH_SUBMODULE/$PRIMARY_PATCH" \
+    --with-qemu-exp
 
 echo "All patches applied!"
 
