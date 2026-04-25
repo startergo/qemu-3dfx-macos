@@ -245,7 +245,7 @@ else
     echo "  Applying with patch -p1 (allows partial application)..."
     patch -p1 -i "$ARCH_SUBMODULE/qemu-exp/qemu-sdl-clipboard.patch" || true
 
-    # Fix the failing hunk in include/ui/sdl2.h — add QemuClipboardPeer after kbd
+    # Fix the failing hunk in include/ui/sdl2.h — add QemuClipboardPeer and prototypes
     # Only add if not already present (patch may have applied the hunk despite reject file)
     if [ -f "include/ui/sdl2.h.rej" ]; then
         echo "  Fixing rejected sdl2.h hunk manually..."
@@ -254,6 +254,17 @@ else
 #ifdef CONFIG_SDL_CLIPBOARD\
     QemuClipboardPeer cbpeer;\
 #endif
+' include/ui/sdl2.h
+        fi
+        # Add clipboard function prototypes before the closing #endif guard
+        if ! grep -q "sdl2_clipboard_init" include/ui/sdl2.h; then
+            sed -i '' '/#endif \/\* SDL2_H \*\//i\
+#ifdef CONFIG_SDL_CLIPBOARD\
+void sdl2_clipboard_init(struct sdl2_console *scon);\
+void sdl2_clipboard_handle_focus_change(struct sdl2_console *scon,\
+                                         bool gained_focus);\
+void sdl2_clipboard_handle_request(struct sdl2_console *scon);\
+#endif\
 ' include/ui/sdl2.h
         fi
         rm -f include/ui/sdl2.h.rej
