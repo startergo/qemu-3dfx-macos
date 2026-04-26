@@ -268,6 +268,9 @@ export CFLAGS="${CFLAGS//-flto=auto/}"
 export CXXFLAGS="${CXXFLAGS//-flto=auto/}"
 export LDFLAGS="${LDFLAGS//-flto=auto/}"
 
+# Ensure Homebrew lib path for X11/GL/Xxf86vm (needed when XQuartz is absent)
+export LDFLAGS="$LDFLAGS -L/opt/homebrew/lib -L/opt/homebrew/opt/mesa/lib"
+
 # Apple framework linker flags for SDL2
 APPLE_FRAMEWORKS="-framework AudioToolbox -framework CoreAudio -framework CoreGraphics -framework CoreFoundation -framework AppKit -framework IOKit -framework ForceFeedback -framework GameController -framework Carbon -framework Cocoa -framework CoreHaptics -framework CoreVideo -framework Metal -framework MetalKit -framework OpenGL"
 export LDFLAGS="$LDFLAGS $APPLE_FRAMEWORKS"
