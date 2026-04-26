@@ -250,65 +250,32 @@ jobs:
         
         # List all available libraries for debugging
         echo "=== Available libraries in Homebrew prefix ==="
-        ls -la "${HOMEBREW_PREFIX}/lib/" | grep -E "(glide|virgl|spice|SDL2)" || echo "No matching libraries found"
-        
-        # Copy Glide libraries (3dfx support) - now built from OpenGLide
-        GLIDE_FOUND=false
-        
-        # Look for versioned Glide libraries first (preferred)
-        for glide_version in "0" "2" "3"; do
-          if [ -f "${HOMEBREW_PREFIX}/lib/libglide2x.${glide_version}.dylib" ]; then
-            cp "${HOMEBREW_PREFIX}/lib/libglide2x.${glide_version}.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
-            ln -sf "libglide2x.${glide_version}.dylib" "${STAGE_DIR}/opt/homebrew/lib/libglide2x.dylib"
-            echo "✅ Copied Glide2x library (version ${glide_version})"
-            GLIDE_FOUND=true
-            break
-          fi
-        done
-        
-        # Fallback to unversioned library
-        if [ "$GLIDE_FOUND" = "false" ] && [ -f "${HOMEBREW_PREFIX}/lib/libglide2x.dylib" ]; then
-          cp "${HOMEBREW_PREFIX}/lib/libglide2x.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
-          echo "✅ Copied Glide2x library (unversioned)"
-          GLIDE_FOUND=true
-        fi
-        
-        # Copy Glide3x with same logic
-        for glide_version in "0" "2" "3"; do
-          if [ -f "${HOMEBREW_PREFIX}/lib/libglide3x.${glide_version}.dylib" ]; then
-            cp "${HOMEBREW_PREFIX}/lib/libglide3x.${glide_version}.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
-            ln -sf "libglide3x.${glide_version}.dylib" "${STAGE_DIR}/opt/homebrew/lib/libglide3x.dylib"
-            echo "✅ Copied Glide3x library (version ${glide_version})"
-            GLIDE_FOUND=true
-            break
-          fi
-        done
-        
-        # Fallback to unversioned Glide3x
-        if [ ! -f "${STAGE_DIR}/opt/homebrew/lib/libglide3x.dylib" ] && [ -f "${HOMEBREW_PREFIX}/lib/libglide3x.dylib" ]; then
-          cp "${HOMEBREW_PREFIX}/lib/libglide3x.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
-          echo "✅ Copied Glide3x library (unversioned)"
-          GLIDE_FOUND=true
-        fi
-        
-        if [ "$GLIDE_FOUND" = "false" ]; then
-          echo "⚠️ No Glide libraries found - 3dfx support may be limited"
-          echo "Available Glide files:"
-          ls -la "${HOMEBREW_PREFIX}/lib/" | grep glide || echo "None found"
-        else
-          echo "✅ Glide libraries copied successfully"
-        fi
-        
+        ls -la "${HOMEBREW_PREFIX}/lib/" | grep -E "(virgl|spice|SDL2)" || echo "No matching libraries found"
+
         # Copy VirGL libraries (Virgl3D support)
-        if [ -f "${HOMEBREW_PREFIX}/lib/libvirglrenderer.1.dylib" ]; then
+        # Built to custom prefix during virglrenderer build step
+        VIRGL_PREFIX="$(brew --prefix)/opt/virglrenderer-3dfx"
+        VIRGL_FOUND=false
+        if [ -f "${VIRGL_PREFIX}/lib/libvirglrenderer.1.dylib" ]; then
+          cp "${VIRGL_PREFIX}/lib/libvirglrenderer.1.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          ln -sf "libvirglrenderer.1.dylib" "${STAGE_DIR}/opt/homebrew/lib/libvirglrenderer.dylib"
+          echo "✅ Copied VirGL library from custom prefix"
+          VIRGL_FOUND=true
+        elif [ -f "${VIRGL_PREFIX}/lib/libvirglrenderer.dylib" ]; then
+          cp "${VIRGL_PREFIX}/lib/libvirglrenderer.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          echo "✅ Copied VirGL library (unversioned) from custom prefix"
+          VIRGL_FOUND=true
+        elif [ -f "${HOMEBREW_PREFIX}/lib/libvirglrenderer.1.dylib" ]; then
           cp "${HOMEBREW_PREFIX}/lib/libvirglrenderer.1.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
           ln -sf "libvirglrenderer.1.dylib" "${STAGE_DIR}/opt/homebrew/lib/libvirglrenderer.dylib"
-          echo "✅ Copied VirGL library"
+          echo "✅ Copied VirGL library from Homebrew prefix"
+          VIRGL_FOUND=true
         elif [ -f "${HOMEBREW_PREFIX}/lib/libvirglrenderer.dylib" ]; then
           cp "${HOMEBREW_PREFIX}/lib/libvirglrenderer.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
-          echo "✅ Copied VirGL library (unversioned)"
+          echo "✅ Copied VirGL library (unversioned) from Homebrew prefix"
+          VIRGL_FOUND=true
         else
-          echo "⚠️ VirGL library not found"
+          echo "⚠️ VirGL library not found in ${VIRGL_PREFIX}/lib/ or ${HOMEBREW_PREFIX}/lib/"
         fi
         
         # Copy SDL2 library (dependency for display support)
@@ -345,10 +312,14 @@ jobs:
           echo "ℹ️ SPICE libraries not found (may be disabled in build)"
         fi
         
-        # Copy QEMU data files (BIOS, ROMs, etc.)
+        # Copy QEMU data files (BIOS, ROMs, etc.) from install directory
         echo "Copying QEMU data files..."
-        if [ -d "${HOMEBREW_PREFIX}/share/qemu" ]; then
+        if [ -d "${INSTALL_DIR}/share/qemu" ]; then
+          cp -r "${INSTALL_DIR}/share/qemu/"* "${STAGE_DIR}/opt/homebrew/share/qemu/" 2>/dev/null || true
+          echo "✅ Copied QEMU data files from install directory"
+        elif [ -d "${HOMEBREW_PREFIX}/share/qemu" ]; then
           cp -r "${HOMEBREW_PREFIX}/share/qemu/"* "${STAGE_DIR}/opt/homebrew/share/qemu/" 2>/dev/null || true
+          echo "✅ Copied QEMU data files from Homebrew prefix"
         fi
         
         # Copy signing files
@@ -385,10 +356,22 @@ jobs:
         
         # Create symlinks in /usr/local/lib for compatibility (absolute paths)
         echo "Creating compatibility symlinks..."
-        ln -sf "/opt/homebrew/lib/libglide2x.dylib" "${STAGE_DIR}/usr/local/lib/libglide2x.dylib"
-        ln -sf "/opt/homebrew/lib/libglide3x.dylib" "${STAGE_DIR}/usr/local/lib/libglide3x.dylib"
         ln -sf "/opt/homebrew/lib/libSDL2.dylib" "${STAGE_DIR}/usr/local/lib/libSDL2.dylib"
+        if [ -f "${STAGE_DIR}/opt/homebrew/lib/libvirglrenderer.dylib" ]; then
+          ln -sf "/opt/homebrew/lib/libvirglrenderer.dylib" "${STAGE_DIR}/usr/local/lib/libvirglrenderer.dylib"
+        fi
         echo "✅ Created compatibility symlinks in /usr/local/lib"
+
+        # Fix library paths in QEMU binaries for standalone distribution
+        echo "Fixing library install names in QEMU binaries..."
+        for binary in "${STAGE_DIR}/opt/homebrew/bin/"qemu-system-* "${STAGE_DIR}/opt/homebrew/bin/qemu-img"; do
+          if [ -f "$binary" ]; then
+            # Add /opt/homebrew/lib to rpath so binaries find their libraries
+            install_name_tool -add_rpath /opt/homebrew/lib "$binary" 2>/dev/null || true
+            echo "  Fixed rpath for $(basename "$binary")"
+          fi
+        done
+        echo "✅ Library paths fixed"
         
         # Create build info file in proper location (not root)
         echo "Creating build information..."
@@ -575,15 +558,15 @@ jobs:
         fi
         
         # Test library symlinks
-        if [ -L "opt/homebrew/lib/libglide2x.dylib" ]; then
-          echo "✅ Glide2x symlink found: $(readlink "opt/homebrew/lib/libglide2x.dylib")"
+        if [ -L "opt/homebrew/lib/libvirglrenderer.dylib" ]; then
+          echo "✅ VirGL renderer symlink found: $(readlink "opt/homebrew/lib/libvirglrenderer.dylib")"
         else
-          echo "⚠️ Glide2x symlink missing"
+          echo "⚠️ VirGL renderer symlink missing"
         fi
-        
+
         # Test compatibility symlinks
-        if [ -L "usr/local/lib/libglide2x.dylib" ]; then
-          echo "✅ Compatibility symlink found: $(readlink "usr/local/lib/libglide2x.dylib")"
+        if [ -L "usr/local/lib/libvirglrenderer.dylib" ]; then
+          echo "✅ Compatibility symlink found: $(readlink "usr/local/lib/libvirglrenderer.dylib")"
         else
           echo "⚠️ Compatibility symlink missing"
         fi
@@ -682,7 +665,7 @@ jobs:
         cat > release-notes.md << EOF
         # QEMU 3dfx Homebrew Package ${RELEASE_TAG}
         
-        This release includes QEMU ${QEMU_VERSION} with 3dfx Glide and Mesa GL pass-through support, packaged in Homebrew-compatible format.
+        This release includes QEMU ${QEMU_VERSION} with 3dfx and Mesa GL pass-through support, packaged in Homebrew-compatible format.
         
         ## Build Information
         - **Commit**: ${COMMIT_SHORT}
@@ -715,7 +698,7 @@ jobs:
         
         The package installs to \`/opt/homebrew\` with the following structure:
         - \`/opt/homebrew/bin/\` - QEMU binaries
-        - \`/opt/homebrew/lib/\` - 3dfx Glide and VirGL libraries
+        - \`/opt/homebrew/lib/\` - VirGL and SDL2 libraries
         - \`/opt/homebrew/share/qemu/\` - QEMU data files (BIOS, ROMs)
         - \`/opt/homebrew/sign/\` - Code signing scripts
         - \`/usr/local/lib/\` - Compatibility symlinks
