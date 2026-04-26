@@ -186,46 +186,40 @@ jobs:
     - name: Quick verification
       if: steps.should_run.outputs.should_run == 'true'
       run: |
+        QEMU_BIN_DIR="/tmp/qemu-11.0.0-3dfx/install_dir/bin"
+        export PATH="$QEMU_BIN_DIR:$PATH"
+
         # Simple verification - test-formula.sh already handles comprehensive testing
         echo "=== Quick QEMU 3dfx verification ==="
-        qemu-system-i386 --version | grep "featuring qemu-3dfx" || {
+        qemu-system-x86_64 --version | grep "featuring qemu-3dfx" || {
           echo "❌ QEMU 3dfx signature not found"
           exit 1
         }
         echo "✅ QEMU 3dfx verified successfully"
-        
+
         # Extract QEMU version dynamically
-        QEMU_VERSION=$(qemu-system-i386 --version | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        QEMU_VERSION=$(qemu-system-x86_64 --version | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         echo "QEMU_VERSION=${QEMU_VERSION}" >> $GITHUB_ENV
         echo "📦 Detected QEMU version: ${QEMU_VERSION}"
-        
+
     - name: Test 3dfx device availability
       if: steps.should_run.outputs.should_run == 'true'
       run: |
-        HOMEBREW_PREFIX=$(brew --prefix)
-        
+        QEMU_BIN_DIR="/tmp/qemu-11.0.0-3dfx/install_dir/bin"
+        export PATH="$QEMU_BIN_DIR:$PATH"
+
         echo "=== Testing device availability ==="
-        
-        # Test with i386 if available
-        if [ -f "${HOMEBREW_PREFIX}/bin/qemu-system-i386" ]; then
-          echo "Testing 3dfx device with qemu-system-i386..."
-          ${HOMEBREW_PREFIX}/bin/qemu-system-i386 -device help | grep -i "3dfx\|glide\|voodoo" || {
-            echo "ℹ️ 3dfx device may require specific parameters"
-            echo "Testing with voodoo parameter..."
-            ${HOMEBREW_PREFIX}/bin/qemu-system-i386 -device 3dfx,help 2>/dev/null || true
-          }
-        else
-          echo "⚠️ qemu-system-i386 not available for 3dfx testing"
-        fi
-        
-        # Test Virgl3D support with x86_64 if available
-        if [ -f "${HOMEBREW_PREFIX}/bin/qemu-system-x86_64" ]; then
-          echo "Testing Virgl3D device with qemu-system-x86_64..."
-          ${HOMEBREW_PREFIX}/bin/qemu-system-x86_64 -device help | grep -i "virtio-vga-gl\|virgl" || echo "ℹ️ Virgl3D support not detected"
-        else
-          echo "⚠️ qemu-system-x86_64 not available for Virgl3D testing"
-        fi
-        
+
+        echo "Testing 3dfx device with qemu-system-i386..."
+        qemu-system-i386 -device help | grep -i "3dfx\|glide\|voodoo" || {
+          echo "ℹ️ 3dfx device may require specific parameters"
+          echo "Testing with voodoo parameter..."
+          qemu-system-i386 -device 3dfx,help 2>/dev/null || true
+        }
+
+        echo "Testing Virgl3D device with qemu-system-x86_64..."
+        qemu-system-x86_64 -device help | grep -i "virtio-vga-gl\|virgl" || echo "ℹ️ Virgl3D support not detected"
+
     - name: Create staging directory
       if: steps.should_run.outputs.should_run == 'true'
       run: |
@@ -247,8 +241,9 @@ jobs:
         
         # Copy binaries
         echo "Copying QEMU binaries..."
-        cp "${HOMEBREW_PREFIX}/bin/qemu-system-"* "${STAGE_DIR}/opt/homebrew/bin/" 2>/dev/null || true
-        cp "${HOMEBREW_PREFIX}/bin/qemu-img" "${STAGE_DIR}/opt/homebrew/bin/" 2>/dev/null || true
+        INSTALL_DIR="/tmp/qemu-11.0.0-3dfx/install_dir"
+        cp "${INSTALL_DIR}/bin/qemu-system-"* "${STAGE_DIR}/opt/homebrew/bin/" 2>/dev/null || true
+        cp "${INSTALL_DIR}/bin/qemu-img" "${STAGE_DIR}/opt/homebrew/bin/" 2>/dev/null || true
         
         # Copy libraries with proper symlinks
         echo "Copying and creating library symlinks..."
