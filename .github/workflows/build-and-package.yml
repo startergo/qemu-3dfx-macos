@@ -250,7 +250,29 @@ jobs:
         
         # List all available libraries for debugging
         echo "=== Available libraries in Homebrew prefix ==="
-        ls -la "${HOMEBREW_PREFIX}/lib/" | grep -E "(virgl|spice|SDL2)" || echo "No matching libraries found"
+        ls -la "${HOMEBREW_PREFIX}/lib/" | grep -E "(virgl|spice|SDL2|epoxy|EGL|GLES)" || echo "No matching libraries found"
+
+        # Copy ANGLE libraries (EGL/GLES via Metal backend — needed by libepoxy at runtime)
+        ANGLE_LIB_DIR="${HOMEBREW_PREFIX}/opt/angle/lib"
+        for angle_lib in libEGL.dylib libGLESv2.dylib libGLESv1_CM.dylib; do
+          if [ -f "${ANGLE_LIB_DIR}/${angle_lib}" ]; then
+            cp "${ANGLE_LIB_DIR}/${angle_lib}" "${STAGE_DIR}/opt/homebrew/lib/"
+            echo "✅ Copied ANGLE ${angle_lib}"
+          fi
+        done
+
+        # Copy patched libepoxy (EGL 1.5 support via ANGLE)
+        EPOXY_LIB_DIR="${HOMEBREW_PREFIX}/opt/libepoxy/lib"
+        if [ -f "${EPOXY_LIB_DIR}/libepoxy.0.dylib" ]; then
+          cp "${EPOXY_LIB_DIR}/libepoxy.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          ln -sf "libepoxy.0.dylib" "${STAGE_DIR}/opt/homebrew/lib/libepoxy.dylib"
+          echo "✅ Copied libepoxy"
+        elif [ -f "${EPOXY_LIB_DIR}/libepoxy.dylib" ]; then
+          cp "${EPOXY_LIB_DIR}/libepoxy.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          echo "✅ Copied libepoxy (unversioned)"
+        else
+          echo "⚠️ libepoxy not found in ${EPOXY_LIB_DIR}"
+        fi
 
         # Copy VirGL libraries (Virgl3D support)
         # Built to custom prefix during virglrenderer build step
@@ -362,13 +384,18 @@ jobs:
         fi
         echo "✅ Created compatibility symlinks in /usr/local/lib"
 
-        # Fix library paths in QEMU binaries for standalone distribution
-        echo "Fixing library install names in QEMU binaries..."
+        # Fix library paths for standalone distribution
+        echo "Fixing rpath for QEMU binaries and libraries..."
         for binary in "${STAGE_DIR}/opt/homebrew/bin/"qemu-system-* "${STAGE_DIR}/opt/homebrew/bin/qemu-img"; do
           if [ -f "$binary" ]; then
-            # Add /opt/homebrew/lib to rpath so binaries find their libraries
             install_name_tool -add_rpath /opt/homebrew/lib "$binary" 2>/dev/null || true
-            echo "  Fixed rpath for $(basename "$binary")"
+          fi
+        done
+        # Libraries also need rpath to find their own dependencies
+        # (e.g. libepoxy dlopen's @rpath/libEGL.dylib from ANGLE)
+        for lib in "${STAGE_DIR}/opt/homebrew/lib/"*.dylib; do
+          if [ -f "$lib" ] && [ ! -L "$lib" ]; then
+            install_name_tool -add_rpath /opt/homebrew/lib "$lib" 2>/dev/null || true
           fi
         done
         echo "✅ Library paths fixed"
