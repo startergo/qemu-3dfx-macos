@@ -197,6 +197,9 @@ jobs:
       run: |
         python3 -m pip install pycotap sphinx sphinxcontrib-serializinghtml
 
+    - name: Create build directory
+      run: mkdir -p build
+
     - name: Configure build
       working-directory: ./build
       shell: msys2 {0}
@@ -446,6 +449,9 @@ jobs:
       run: |
         python3 -m pip install pycotap sphinx sphinxcontrib-serializinghtml
 
+    - name: Create build directory
+      run: mkdir -p build
+
     - name: Configure build
       working-directory: ./build
       shell: msys2 {0}
@@ -607,6 +613,7 @@ jobs:
         make all+ && make clean
         echo "Compiling Guest Openglide"
         cd ../../extra/openglide/
+        dos2unix configure.ac Makefile.am
         bash ./bootstrap
         mkdir ../build && cd ../build
         ../openglide/configure --disable-sdl && make
