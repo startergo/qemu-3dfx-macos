@@ -78,10 +78,9 @@ brew install git wget meson ninja pkg-config \
     autoconf automake libtool cmake
 
 # Install mesa-glu for GL/glu.h (needed by OpenGLide)
-brew install mesa-glu
-
-# Install mesa separately — GL/ header conflicts with xorgproto are cosmetic
-brew install mesa || true
+# mesa-glu depends on mesa — both conflict with angle (EGL) and xorgproto (GL)
+brew install mesa-glu || true
+brew link --overwrite mesa-glu 2>/dev/null || true
 brew link --overwrite mesa 2>/dev/null || true
 
 echo "Dependencies installed"
