@@ -77,6 +77,9 @@ brew install git wget meson ninja pkg-config \
     libxinerama libxi libxcursor libxxf86vm \
     autoconf automake libtool cmake
 
+# Install mesa-glu for GL/glu.h (needed by OpenGLide)
+brew install mesa-glu
+
 # Install mesa separately — GL/ header conflicts with xorgproto are cosmetic
 brew install mesa || true
 brew link --overwrite mesa 2>/dev/null || true

@@ -49,6 +49,9 @@ class Qemu3dfx < Formula
   # GL headers (provides GL/glcorearb.h, GL/glx.h without XQuartz)
   depends_on "mesa"
 
+  # GLU headers (provides GL/glu.h for OpenGLide build)
+  depends_on "mesa-glu"
+
   # X11 libraries (for GL/X11 compilation)
   depends_on "libx11"
   depends_on "libxext"
