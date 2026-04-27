@@ -1,1 +1,1 @@
-qemu-3dfx-upstream/README.md
+qemu-3dfx-arch/README.md

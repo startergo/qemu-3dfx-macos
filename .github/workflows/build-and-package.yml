@@ -90,14 +90,10 @@ jobs:
         echo "Initializing git submodules for qemu-3dfx repository..."
         git submodule update --init --recursive
         echo "✅ Git submodules initialized"
-        
-        # Verify the submodule is properly initialized
-        echo "Checking qemu-3dfx-upstream submodule:"
-        ls -la qemu-3dfx-upstream/ | head -5
-        
+
         # Show which submodule commit we're using for the build
-        SUBMODULE_COMMIT=$(cd qemu-3dfx-upstream && git rev-parse --short HEAD)
-        echo "📦 Building with qemu-3dfx-upstream at commit: ${SUBMODULE_COMMIT}"
+        SUBMODULE_COMMIT=$(cd qemu-3dfx-arch && git rev-parse --short HEAD)
+        echo "Building with qemu-3dfx-arch at commit: ${SUBMODULE_COMMIT}"
         
     - name: Set up environment
       if: steps.should_run.outputs.should_run == 'true'
