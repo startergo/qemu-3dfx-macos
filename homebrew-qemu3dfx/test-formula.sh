@@ -361,9 +361,9 @@ echo "Configuring OpenGLide..."
 BREW_PREFIX="$(brew --prefix)"
 ./configure --disable-sdl \
     --prefix="$GLIDE_INSTALL_PREFIX" \
-    "CPPFLAGS=-I$INCLUDE_DIR -I${BREW_PREFIX}/include" \
-    "CFLAGS=-I$INCLUDE_DIR -I${BREW_PREFIX}/include" \
-    "CXXFLAGS=-I$INCLUDE_DIR -I${BREW_PREFIX}/include" \
+    "CPPFLAGS=-I$INCLUDE_DIR -I${BREW_PREFIX}/include -I${BREW_PREFIX}/opt/mesa/include" \
+    "CFLAGS=-I$INCLUDE_DIR -I${BREW_PREFIX}/include -I${BREW_PREFIX}/opt/mesa/include" \
+    "CXXFLAGS=-I$INCLUDE_DIR -I${BREW_PREFIX}/include -I${BREW_PREFIX}/opt/mesa/include" \
     "LDFLAGS=-L${BREW_PREFIX}/lib" \
     "LIBS=-lX11"
 
