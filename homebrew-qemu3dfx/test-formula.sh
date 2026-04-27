@@ -74,9 +74,11 @@ brew install git wget meson ninja pkg-config \
     capstone glib gettext gnutls libgcrypt libslirp libusb jpeg-turbo \
     lz4 opus sdl2 zstd swtpm libffi ncurses pixman sdl2_image \
     spice-protocol spice-server libx11 libxext libxfixes libxrandr \
-    libxinerama libxi libxcursor libxxf86vm
+    libxinerama libxi libxcursor libxxf86vm \
+    autoconf automake libtool cmake
 
-# Install mesa separately — conflicts with angle (EGL/)
+# Unlink xorgproto to resolve GL/ header conflicts with mesa, then install mesa
+brew unlink xorgproto 2>/dev/null || true
 brew install mesa || true
 brew link --overwrite mesa 2>/dev/null || true
 
