@@ -176,9 +176,10 @@ jobs:
         fi
         bash "${PATCH_ARGS[@]}"
 
-        # Re-sign with main repo commit (apply_qemu_patches.sh signs with submodule commit)
+        # Re-sign with main repo commit from the QEMU source directory
         echo "Re-signing with main repo commit: ${{ env.COMMIT_SHORT }}"
-        bash scripts/sign_commit -git=".." "${{ env.COMMIT_SHORT }}"
+        cd "../${{ env.qemu_src_dir }}"
+        bash "../qemu-3dfx-arch/scripts/sign_commit" -git=".." "${{ env.COMMIT_SHORT }}"
 
     - name: Build local virglrenderer package
       shell: msys2 {0}
@@ -424,9 +425,10 @@ jobs:
         fi
         bash "${PATCH_ARGS[@]}"
 
-        # Re-sign with main repo commit (apply_qemu_patches.sh signs with submodule commit)
+        # Re-sign with main repo commit from the QEMU source directory
         echo "Re-signing with main repo commit: ${{ env.COMMIT_SHORT }}"
-        bash scripts/sign_commit -git=".." "${{ env.COMMIT_SHORT }}"
+        cd "../${{ env.qemu_src_dir }}"
+        bash "../qemu-3dfx-arch/scripts/sign_commit" -git=".." "${{ env.COMMIT_SHORT }}"
 
     - name: Build local virglrenderer package
       shell: msys2 {0}
