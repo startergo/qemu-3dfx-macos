@@ -358,12 +358,13 @@ if [ -d "$MESA_KHR_INCLUDE" ]; then
 fi
 
 echo "Configuring OpenGLide..."
+BREW_PREFIX="$(brew --prefix)"
 ./configure --disable-sdl \
     --prefix="$GLIDE_INSTALL_PREFIX" \
-    "CPPFLAGS=-I$INCLUDE_DIR" \
-    "CFLAGS=-I$INCLUDE_DIR" \
-    "CXXFLAGS=-I$INCLUDE_DIR" \
-    "LDFLAGS=-L$(brew --prefix)/lib" \
+    "CPPFLAGS=-I$INCLUDE_DIR -I${BREW_PREFIX}/include" \
+    "CFLAGS=-I$INCLUDE_DIR -I${BREW_PREFIX}/include" \
+    "CXXFLAGS=-I$INCLUDE_DIR -I${BREW_PREFIX}/include" \
+    "LDFLAGS=-L${BREW_PREFIX}/lib" \
     "LIBS=-lX11"
 
 echo "Building OpenGLide..."

@@ -328,9 +328,9 @@ class Qemu3dfx < Formula
 
       system "./configure", "--disable-sdl",
         "--prefix=#{prefix}",
-        "CPPFLAGS=-I#{include_dir}",
-        "CFLAGS=-I#{include_dir}",
-        "CXXFLAGS=-I#{include_dir}",
+        "CPPFLAGS=-I#{include_dir} -I#{HOMEBREW_PREFIX}/include",
+        "CFLAGS=-I#{include_dir} -I#{HOMEBREW_PREFIX}/include",
+        "CXXFLAGS=-I#{include_dir} -I#{HOMEBREW_PREFIX}/include",
         "LDFLAGS=-L#{HOMEBREW_PREFIX}/lib",
         "LIBS=-lX11"
 
