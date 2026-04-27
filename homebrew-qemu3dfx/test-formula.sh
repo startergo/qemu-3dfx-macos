@@ -77,8 +77,7 @@ brew install git wget meson ninja pkg-config \
     libxinerama libxi libxcursor libxxf86vm \
     autoconf automake libtool cmake
 
-# Unlink xorgproto to resolve GL/ header conflicts with mesa, then install mesa
-brew unlink xorgproto 2>/dev/null || true
+# Install mesa separately — GL/ header conflicts with xorgproto are cosmetic
 brew install mesa || true
 brew link --overwrite mesa 2>/dev/null || true
 
