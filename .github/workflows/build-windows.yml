@@ -1,582 +1,578 @@
 name: Build QEMU-3dfx for Windows
 
-# Required permissions for creating releases
+# Matches upstream qemu-3dfx-arch/.github/workflows/build.yaml
+# with submodule path adjustments (qemu-3dfx-arch/ prefix)
+# Uses main repo (qemu-3dfx-macos) commit ID for all signing
+
 permissions:
   contents: write
   packages: read
 
 on:
+  push:
+  pull_request:
   workflow_dispatch:
     inputs:
-      create_release:
-        description: 'Create GitHub release'
+      publish_release:
+        description: Publish release assets
         required: false
         default: false
         type: boolean
       apply_experimental:
-        description: 'Apply experimental patches (SDL Clipboard) - EXPERIMENTAL'
+        description: Apply experimental patches (SDL Clipboard)
         required: false
         default: true
         type: boolean
       commit_id:
-        description: 'Override commit ID for signing (leave empty for auto-detection)'
+        description: Override commit ID for signing (leave empty for auto-detection)
         required: false
         default: ''
         type: string
 
 jobs:
-  windows-build:
-    runs-on: windows-latest  # Updated from windows-2019 (retired as of 2025-06-30)
-    timeout-minutes: 180  # 3 hours timeout for Windows builds
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - msystem: 'MINGW64'
-            pkg_prefix: 'mingw-w64-x86_64'
-            artifact_suffix: 'mingw64'
-          - msystem: 'UCRT64'
-            pkg_prefix: 'mingw-w64-ucrt-x86_64'
-            artifact_suffix: 'ucrt64'
-    env:
-      QEMU_VERSION: '10.1.0'
-      PATCH_FILE: '00-qemu110x-mesa-glide.patch'
-      APPLY_EXPERIMENTAL: ${{ github.event.inputs.apply_experimental == 'true' }}
-      COMMIT_ID_OVERRIDE: ${{ github.event.inputs.commit_id }}
-      
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        
-      - name: Initialize git submodules
-        shell: bash
-        run: |
-          echo "Initializing git submodules for qemu-3dfx repository..."
-          git submodule update --init --recursive
-          echo "✅ Git submodules initialized"
-          
-          # Verify the qemu-3dfx-upstream submodule is properly initialized
-          echo "Checking qemu-3dfx-upstream submodule:"
-          ls -la qemu-3dfx-upstream/ | head -5
-          
-          # Show which submodule commit we're using for the build
-          SUBMODULE_COMMIT=$(cd qemu-3dfx-upstream && git rev-parse --short HEAD)
-          echo "📦 Building with qemu-3dfx-upstream at commit: ${SUBMODULE_COMMIT}"
-          
-          # Verify the qemu-3dfx-arch submodule (wrappers) is properly initialized
-          echo "Checking qemu-3dfx-arch submodule (wrappers):"
-          ls -la qemu-3dfx-arch/wrappers/ | head -5
-          
-          # Verify nested submodule (wrappers/extra with OpenGLide)
-          echo "Checking wrappers/extra submodule (OpenGLide):"
-          ls -la qemu-3dfx-arch/wrappers/extra/ | head -5
-          
-          WRAPPER_COMMIT=$(cd qemu-3dfx-arch && git rev-parse --short HEAD)
-          echo "📦 Building with qemu-3dfx-arch wrappers at commit: ${WRAPPER_COMMIT}"
-        
-      - name: Setup MSYS2
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: ${{ matrix.msystem }}
-          update: true
-          install: >-
-            base
-            base-devel
-            dos2unix
-            gcc
-            git
-            make
-            ninja
-            patch
-            python
-            rsync
-            unzip
-            vim
-            wget
-            xorriso
-            zstd
-            ${{ matrix.pkg_prefix }}-python
-            ${{ matrix.pkg_prefix }}-python-distlib
-            ${{ matrix.pkg_prefix }}-python-setuptools
-            ${{ matrix.pkg_prefix }}-python-sphinx
-            ${{ matrix.pkg_prefix }}-python-sphinx_rtd_theme
-            ${{ matrix.pkg_prefix }}-angleproject
-            ${{ matrix.pkg_prefix }}-autotools
-            ${{ matrix.pkg_prefix }}-binutils
-            ${{ matrix.pkg_prefix }}-toolchain
-            ${{ matrix.pkg_prefix }}-tools
-            ${{ matrix.pkg_prefix }}-7zip
-            ${{ matrix.pkg_prefix }}-cairo
-            ${{ matrix.pkg_prefix }}-capstone
-            ${{ matrix.pkg_prefix }}-curl
-            ${{ matrix.pkg_prefix }}-cyrus-sasl
-            ${{ matrix.pkg_prefix }}-dtc
-            ${{ matrix.pkg_prefix }}-expat
-            ${{ matrix.pkg_prefix }}-fontconfig
-            ${{ matrix.pkg_prefix }}-freetype
-            ${{ matrix.pkg_prefix }}-gcc
-            ${{ matrix.pkg_prefix }}-gdk-pixbuf2
-            ${{ matrix.pkg_prefix }}-gettext-runtime
-            ${{ matrix.pkg_prefix }}-gettext-tools
-            ${{ matrix.pkg_prefix }}-glib2
-            ${{ matrix.pkg_prefix }}-gnutls
-            ${{ matrix.pkg_prefix }}-gst-libav
-            ${{ matrix.pkg_prefix }}-gst-plugins-ugly
-            ${{ matrix.pkg_prefix }}-gtk3
-            ${{ matrix.pkg_prefix }}-gtk-vnc
-            ${{ matrix.pkg_prefix }}-jack2
-            ${{ matrix.pkg_prefix }}-libcacard
-            ${{ matrix.pkg_prefix }}-libgcrypt
-            ${{ matrix.pkg_prefix }}-libepoxy
-            ${{ matrix.pkg_prefix }}-libnfs
-            ${{ matrix.pkg_prefix }}-libpng
-            ${{ matrix.pkg_prefix }}-libslirp
-            ${{ matrix.pkg_prefix }}-libssh
-            ${{ matrix.pkg_prefix }}-libssh2
-            ${{ matrix.pkg_prefix }}-libtasn1
-            ${{ matrix.pkg_prefix }}-libusb
-            ${{ matrix.pkg_prefix }}-libxml2
-            ${{ matrix.pkg_prefix }}-lz4
-            ${{ matrix.pkg_prefix }}-lzo2
-            ${{ matrix.pkg_prefix }}-meson
-            ${{ matrix.pkg_prefix }}-msitools
-            ${{ matrix.pkg_prefix }}-ncurses
-            ${{ matrix.pkg_prefix }}-nettle
-            ${{ matrix.pkg_prefix }}-ninja
-            ${{ matrix.pkg_prefix }}-pcre2
-            ${{ matrix.pkg_prefix }}-pixman
-            ${{ matrix.pkg_prefix }}-pkgconf
-            ${{ matrix.pkg_prefix }}-pulseaudio
-            ${{ matrix.pkg_prefix }}-SDL2
-            ${{ matrix.pkg_prefix }}-SDL2_image
-            ${{ matrix.pkg_prefix }}-SDL2_sound
-            ${{ matrix.pkg_prefix }}-snappy
-            ${{ matrix.pkg_prefix }}-spice
-            ${{ matrix.pkg_prefix }}-spice-gtk
-            ${{ matrix.pkg_prefix }}-spice-protocol
-            ${{ matrix.pkg_prefix }}-usbredir
-            ${{ matrix.pkg_prefix }}-virglrenderer
-            ${{ matrix.pkg_prefix }}-xz
-            ${{ matrix.pkg_prefix }}-zlib
-            ${{ matrix.pkg_prefix }}-zstd
-            ${{ matrix.pkg_prefix }}-rust
-
-      - name: Download and extract QEMU source
-        shell: msys2 {0}
-        run: |
-          echo "Downloading QEMU source version ${{ env.QEMU_VERSION }}"
-          wget -q --show-progress https://download.qemu.org/qemu-${{ env.QEMU_VERSION }}.tar.xz
-          echo "Extracting QEMU source (Windows-compatible extraction)"
-          # Extract with error suppression for symlink issues on Windows
-          tar -xf qemu-${{ env.QEMU_VERSION }}.tar.xz 2>/dev/null || {
-            echo "Standard extraction had issues, continuing anyway..."
-            # Verify we have the main source directory
-            if [[ -d "qemu-${{ env.QEMU_VERSION }}" ]]; then
-              echo "QEMU source directory exists, extraction was mostly successful"
-            else
-              echo "Error: QEMU source directory not found"
-              exit 1
-            fi
-          }
-          echo "QEMU source extracted successfully"
-          df -h  # Show disk space after extraction
-
-      - name: Apply patches and prepare source
-        shell: msys2 {0}
-        run: |
-          echo "🚨🚨🚨 WINDOWS WORKFLOW DEBUG START - EXPERIMENTAL PATCHES TROUBLESHOOTING 🚨🚨🚨"
-          echo "This debug output should be visible in GitHub Actions logs!"
-          echo "If you see this message, the Windows workflow debugging is working."
-          echo ""
-          
-          echo "Adding 3dfx and mesa files to QEMU source"
-          rsync -rv qemu-0/hw/3dfx qemu-1/hw/mesa qemu-${{ env.QEMU_VERSION }}/hw/
-          cd qemu-${{ env.QEMU_VERSION }}
-          
-          echo "Applying main QEMU-3dfx patch: ${{ env.PATCH_FILE }}"
-          patch -p0 -i ../${{ env.PATCH_FILE }}
-          
-          echo "🔧 Applying mingw-w64 v14+ compatibility fix for VSS"
-          VSS_FIX_PATCH="../patches/qemu-vss-mingw64-v14-compat.patch"
-          if [[ -f "$VSS_FIX_PATCH" ]]; then
-            echo "Applying VSS mingw-w64 v14 compatibility fix: $VSS_FIX_PATCH"
-            if patch -p1 -i "$VSS_FIX_PATCH"; then
-              echo "✅ VSS mingw-w64 v14 compatibility fix applied successfully"
-            else
-              echo "⚠️ VSS fix patch failed, but continuing (may cause build issues with mingw-w64 v14+)"
-            fi
-          else
-            echo "⚠️ VSS fix patch not found: $VSS_FIX_PATCH (required for mingw-w64 v14+)"
-          fi
-          
-          echo "=== DEBUGGING WINDOWS WORKFLOW INPUTS ==="
-          echo "GitHub event name: ${GITHUB_EVENT_NAME}"
-          echo "Raw github.event.inputs.apply_experimental: '${{ github.event.inputs.apply_experimental }}'"
-          echo "Environment APPLY_EXPERIMENTAL: '${APPLY_EXPERIMENTAL}'"
-          
-          # Store the input value for easier handling
-          WORKFLOW_INPUT="${{ github.event.inputs.apply_experimental }}"
-          echo "Stored workflow input: '${WORKFLOW_INPUT}'"
-          echo "Length of input: ${#WORKFLOW_INPUT}"
-          echo "Type check - comparing to 'true': [ '${WORKFLOW_INPUT}' = 'true' ]"
-          
-          # Handle GitHub Actions boolean inputs more robustly
-          # Note: Windows workflow has default=false, different from macOS
-          if [[ "${WORKFLOW_INPUT}" == "true" ]]; then
-            APPLY_EXPERIMENTAL_PATCHES="true"
-            echo "🧪 Experimental patches will be applied (workflow input = '${WORKFLOW_INPUT}')"
-            echo "✅ CONDITION MET: apply_experimental is true"
-          else
-            APPLY_EXPERIMENTAL_PATCHES="false"
-            echo "📦 Standard build without experimental patches (workflow input = '${WORKFLOW_INPUT}' or default=false)"
-            echo "❌ CONDITION NOT MET: apply_experimental is '${WORKFLOW_INPUT}' (not 'true')"
-          fi
-          
-          echo "🚨🚨🚨 FINAL RESULT FOR EXPERIMENTAL PATCHES (WINDOWS) 🚨🚨🚨"
-          echo "APPLY_EXPERIMENTAL_PATCHES = '${APPLY_EXPERIMENTAL_PATCHES}'"
-          
-          if [[ "${APPLY_EXPERIMENTAL_PATCHES}" == "true" ]]; then
-            echo "🧪 Applying experimental SDL Clipboard patch for Windows"
-            
-            # Apply the standardized SDL clipboard patch
-            SDL_CLIPBOARD_PATCH="../patches/qemu-10.0.0-sdl-clipboard-post-3dfx-corrected-final.patch"
-            
-            if [[ -f "$SDL_CLIPBOARD_PATCH" ]]; then
-              echo "🎯 Applying SDL Clipboard patch: $SDL_CLIPBOARD_PATCH"
-              
-              if patch -p1 -i "$SDL_CLIPBOARD_PATCH"; then
-                echo "✅ SDL Clipboard patch applied successfully: $(basename $SDL_CLIPBOARD_PATCH)"
-              else
-                echo "❌ Failed to apply SDL Clipboard patch: $SDL_CLIPBOARD_PATCH"
-                echo "Build will continue without experimental features"
-                exit 1
-              fi
-            else
-              echo "❌ SDL Clipboard patch not found: $SDL_CLIPBOARD_PATCH"
-              echo "Build will continue without experimental features"
-              exit 1
-            fi
-          else
-            echo "📦 Skipping experimental patches (apply_experimental = false or not set)"
-          fi
-          
-          echo "🚨🚨🚨 END DEBUG SECTION (WINDOWS) 🚨🚨🚨"
-          echo ""
-          
-          echo "Setting up commit ID for signing"
-          if [[ -n "${{ github.event.inputs.commit_id }}" ]]; then
-            echo "Using custom commit ID: ${{ github.event.inputs.commit_id }}"
-            export COMMIT_ID_OVERRIDE="${{ github.event.inputs.commit_id }}"
-          else
-            echo "Using auto-detected commit ID from git"
-            export COMMIT_ID_OVERRIDE=""
-          fi
-          
-          echo "Signing commit ID"
-          bash ../sign_commit
-          echo "Build preparation completed"
-
-      - name: Create build directory
-        run: mkdir -p build
-
-      - name: Configure QEMU build
-        working-directory: ./build
-        shell: msys2 {0}
-        run: |
-          echo "Configuring QEMU build for ${{ matrix.msystem }}"
-          ../qemu-${{ env.QEMU_VERSION }}/configure \
-            --target-list="x86_64-softmmu,i386-softmmu" \
-            --prefix=$(pwd)/../install_dir \
-            --extra-cflags="-O2" \
-            --disable-rust
-          echo "Configuration completed"
-
-      - name: Build QEMU
-        working-directory: ./build
-        shell: msys2 {0}
-        run: |
-          echo "Building QEMU with limited parallel jobs for CI stability"
-          make -j2
-          echo "QEMU build completed"
-
-      - name: Install QEMU build
-        working-directory: ./build
-        shell: msys2 {0}
-        run: |
-          echo "Installing QEMU to output directory"
-          make install
-          cd ../install_dir
-          
-          echo "Setting up commit ID for binary signing"
-          if [[ -n "${{ github.event.inputs.commit_id }}" ]]; then
-            echo "Using custom commit ID for binary signing: ${{ github.event.inputs.commit_id }}"
-            export COMMIT_ID_OVERRIDE="${{ github.event.inputs.commit_id }}"
-          else
-            echo "Using auto-detected commit ID for binary signing"
-            export COMMIT_ID_OVERRIDE=""
-          fi
-          
-          echo "Signing binaries"
-          bash "${GITHUB_WORKSPACE}/sign_binary.sh"
-          
-          echo "Creating version info"
-          echo "QEMU-3dfx (Windows Build)" > version.txt
-          echo "=================================================" >> version.txt
-          echo "GitHub Actions Artifact Build" >> version.txt
-          echo "Repository: startergo/qemu-3dfx-macos" >> version.txt
-          echo "Branch: ${{ github.ref_name }}" >> version.txt
-          echo "Version: ${{ env.QEMU_VERSION }}" >> version.txt
-          echo "Build System: ${{ matrix.msystem }}" >> version.txt
-          echo "Build Date: $(date)" >> version.txt
-          echo "Commit: ${{ github.sha }}" >> version.txt
-          echo "Custom Commit ID: ${{ github.event.inputs.commit_id || 'auto-detected' }}" >> version.txt
-          echo "Experimental patches: ${{ github.event.inputs.apply_experimental || 'true' }}" >> version.txt
-          echo "SDL Clipboard patch: ${{ github.event.inputs.apply_experimental == 'true' && 'APPLIED' || 'NOT APPLIED' }}" >> version.txt
-          unix2dos version.txt
-          echo "QEMU installation completed at $(date)"
-
-      # Note: Wrapper builds moved to separate MINGW32 job below
-      # Windows guest wrappers require MINGW32 (32-bit) toolchain, not MINGW64/UCRT64
-
-      - name: Upload QEMU binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: qemu-3dfx-windows-${{ matrix.artifact_suffix }}-${{ env.QEMU_VERSION }}-${{ github.run_number }}
-          path: ./install_dir
-          retention-days: 30
-
-      - name: Build summary
-        shell: msys2 {0}
-        run: |
-          echo "=== Build Summary for ${{ matrix.msystem }} ==="
-          echo "QEMU Version: ${{ env.QEMU_VERSION }}"
-          echo "Main Patch Applied: ${{ env.PATCH_FILE }}"
-          echo "Experimental patches requested: ${{ github.event.inputs.apply_experimental || 'true' }}"
-          echo "SDL Clipboard patch: ${{ github.event.inputs.apply_experimental == 'true' && 'APPLIED' || 'NOT APPLIED' }}"
-          echo "Custom Commit ID: ${{ github.event.inputs.commit_id || 'auto-detected' }}"
-          echo "Build System: ${{ matrix.msystem }}"
-          echo "Package Prefix: ${{ matrix.pkg_prefix }}"
-          echo "Artifact Suffix: ${{ matrix.artifact_suffix }}"
-          echo "Build completed at: $(date)"
-          
-          if [[ -d "install_dir" ]]; then
-            echo ""
-            echo "=== QEMU binaries built ==="
-            find install_dir -name "qemu-*.exe" -exec basename {} \;
-          fi
-          
-          if [[ -f "qemu-3dfx-arch/wrappers/wrappers.iso" ]]; then
-            echo ""
-            echo "=== Wrapper ISO created ==="
-            echo "Wrapper ISO size: $(du -h qemu-3dfx-arch/wrappers/wrappers.iso | cut -f1)"
-          fi
-          
-          echo ""
-          echo "=== Patch Status Summary ==="
-          echo "✅ Main 3dfx/Mesa patch: APPLIED (${{ env.PATCH_FILE }})"
-          if [[ "${{ github.event.inputs.apply_experimental }}" == "true" ]]; then
-            echo "🧪 SDL Clipboard patch: APPLIED (experimental)"
-          else
-            echo "📦 SDL Clipboard patch: NOT APPLIED (standard build)"
-          fi
-
-  create-windows-release:
-    name: Create Windows Release
+  MINGW64-Windows:
     runs-on: windows-latest
-    needs: windows-build
-    if: github.event.inputs.create_release == 'true'
-    
+    timeout-minutes: 180
+    env:
+      buildver: 'qemu-11.0.0'
+      qemu_ref: 'v11.0.0'
+      qemu_src_dir: 'qemu-11.0.0'
+      primary_patch: '00-qemu110x-mesa-glide.patch'
+      mspkg: 'mingw-w64-x86_64'
+      branch: ${{ github.ref_name }}
+
     steps:
-    - name: Checkout repository
+    - name: Checkout repo
       uses: actions/checkout@v4
-      
-    - name: Initialize git submodules
+
+    - name: Initialize submodules
       shell: bash
       run: |
-        echo "Initializing git submodules for qemu-3dfx repository..."
         git submodule update --init --recursive
-        git submodule update --remote
-        echo "✅ Git submodules initialized and updated"
-        
-    - name: Calculate build number from git tags
-      shell: pwsh
-      run: |
-        # Fetch all tags
-        git fetch --tags
-        
-        # Count existing windows release tags
-        $existingTags = git tag --list "qemu-3dfx-windows-*" | Measure-Object | Select-Object -ExpandProperty Count
-        $buildNumber = $existingTags
-        
-        Write-Host "📊 Found $existingTags existing Windows release tags"
-        Write-Host "🔢 Next build number: $buildNumber"
-        
-        # Export for use in subsequent steps
-        Write-Output "BUILD_NUMBER=$buildNumber" | Out-File -FilePath $env:GITHUB_ENV -Append
-        
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: all-artifacts/
-        
-    - name: Prepare release assets
-      shell: pwsh
-      run: |
-        New-Item -ItemType Directory -Force -Path release-assets
-        
-        # Collect all Windows artifacts - both individual files and directories
-        Write-Host "=== Scanning for artifacts ==="
-        Get-ChildItem -Path all-artifacts -Recurse | Format-Table Name, PSIsContainer, Length
-        
-        # Copy ISO files directly
-        Get-ChildItem -Path all-artifacts -Recurse -Include "*.iso" | Copy-Item -Destination release-assets/
-        
-        # Package directory artifacts as ZIP files
-        Get-ChildItem -Path all-artifacts -Directory | ForEach-Object {
-          $dirName = $_.Name
-          $zipName = "$dirName.zip"
-          Write-Host "Packaging $dirName as $zipName"
-          Compress-Archive -Path "$($_.FullName)\*" -DestinationPath "release-assets\$zipName" -Force
-        }
-        
-        Write-Host "=== Windows release assets prepared ==="
-        Get-ChildItem release-assets/ | Format-Table Name, Length
-        
-        # Verify we have at least one artifact
-        $artifactCount = (Get-ChildItem release-assets/).Count
-        if ($artifactCount -eq 0) {
-          Write-Host "❌ No artifacts found for Windows release!"
-          exit 1
-        } else {
-          Write-Host "✅ Found $artifactCount artifacts for Windows release"
-        }
-        
-    - name: Generate Windows release notes
-      shell: pwsh
-      run: |
-        $buildNumber = $env:BUILD_NUMBER
-        $releaseTag = "windows-v$(Get-Date -Format 'yyyyMMdd')-$buildNumber"
-        $qemuVersion = "10.1.0"  # Match the QEMU_VERSION from env
-        
-        # Create release notes content
-        $content = @()
-        $content += "# QEMU 3dfx Windows Build $buildNumber"
-        $content += ""
-        $content += "This release includes QEMU $qemuVersion with 3dfx Glide and Mesa GL pass-through support for Windows."
-        $content += ""
-        $content += "## Build Information"
-        $content += "- **Build Date**: $(Get-Date -Format 'yyyy-MM-dd')"
-        $content += "- **QEMU Version**: $qemuVersion"
-        $content += "- **Build Number**: $buildNumber"
-        $content += "- **Commit**: $env:GITHUB_SHA"
-        $content += "- **Custom Commit ID**: ${{ github.event.inputs.commit_id || 'auto-detected' }}"
-        $content += ""
-        $content += "## Supported Windows Builds"
-        $content += "- **MINGW64**: Standard MinGW-w64 x86_64 build"
-        $content += "- **UCRT64**: Universal C Runtime x86_64 build (recommended for Windows 10+)"
-        $content += ""
-        $content += "## Installation Instructions"
-        $content += ""
-        $content += "1. Download the appropriate build for your system"
-        $content += "2. Extract the archive to your desired location"
-        $content += "3. The binaries will be in the main directory"
-        $content += "4. Wrapper ISO (if available) contains guest OS drivers and utilities"
-        $content += ""
-        $content += "## Package Contents"
-        $content += ""
-        $content += "Each Windows build includes:"
-        $content += "- QEMU Binaries: qemu-system-i386.exe, qemu-system-x86_64.exe, qemu-img.exe"
-        $content += "- Version Info: build-timestamp.txt, version.txt with detailed build information"
-        $content += "- Wrapper ISO: Guest OS drivers and utilities (if built successfully)"
-        $content += ""
-        $content += "## Usage Examples"
-        $content += ""
-        $content += "### 3dfx Glide Support (DOS/Windows 9x)"
-        $content += '```batch'
-        $content += "qemu-system-i386.exe \"
-        $content += "  -machine pc-i440fx-2.1 \"
-        $content += "  -cpu pentium2 \"
-        $content += "  -m 128 \"
-        $content += "  -device 3dfx,voodoo=voodoo2 \"
-        $content += "  -hda dos.img"
-        $content += '```'
-        $content += ""
-        $content += "### Modern Windows with Mesa OpenGL"
-        $content += '```batch'
-        $content += "qemu-system-x86_64.exe \"
-        $content += "  -machine pc \"
-        $content += "  -cpu host \"
-        $content += "  -m 2048 \"
-        $content += "  -device virtio-vga-gl \"
-        $content += "  -display sdl,gl=on \"
-        $content += "  -hda windows.img"
-        $content += '```'
-        $content += ""
-        $content += "## Experimental Features"
-        $experimentalInput = "${{ github.event.inputs.apply_experimental }}"
-        $experimentalStatus = if ($experimentalInput -eq 'true') { 'ENABLED' } else { 'DISABLED' }
-        $content += "- **SDL Clipboard**: $experimentalStatus"
-        $content += "  - Allows clipboard sharing between host and guest"
-        $content += ""
-        $content += "## Files in this Release"
-        
-        # Add file list
-        Get-ChildItem release-assets/ | ForEach-Object {
-          $size = [math]::Round($_.Length / 1MB, 2)
-          $content += "- $($_.Name) ($size MB)"
-        }
+        SUBMODULE_COMMIT=$(cd qemu-3dfx-arch && git rev-parse --short HEAD)
+        echo "qemu-3dfx-arch submodule at: ${SUBMODULE_COMMIT}"
 
-        # Write to file
-        $content | Out-File -FilePath release-notes.md -Encoding UTF8
-        
-        # Store the release tag for the next step  
-        Write-Output "WINDOWS_RELEASE_TAG=$releaseTag" | Out-File -FilePath $env:GITHUB_ENV -Append
-        
-    - name: Create GitHub Release for Windows
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: qemu-3dfx-windows-${{ env.BUILD_NUMBER }}
-        name: QEMU 3dfx Windows Build ${{ env.BUILD_NUMBER }}
-        body_path: release-notes.md
-        files: release-assets/*
-        draft: false
-        prerelease: true
-        make_latest: false
-        fail_on_unmatched_files: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Set up commit ID
+      shell: bash
+      run: |
+        if [ -n "${{ github.event.inputs.commit_id }}" ]; then
+          COMMIT_SHORT="${{ github.event.inputs.commit_id }}"
+          COMMIT_FULL="${{ github.event.inputs.commit_id }}"
+        else
+          COMMIT_SHORT=$(git rev-parse --short HEAD)
+          COMMIT_FULL=$(git rev-parse HEAD)
+        fi
+        echo "COMMIT_SHORT=${COMMIT_SHORT}" >> $GITHUB_ENV
+        echo "COMMIT_FULL=${COMMIT_FULL}" >> $GITHUB_ENV
+        echo "Main repo commit: ${COMMIT_SHORT}"
 
-  # Windows Guest Wrappers (MINGW32 32-bit build)
-  wrappers-build:
+    - name: Setup MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          base
+          base-devel
+          dos2unix
+          gcc
+          git
+          make
+          ninja
+          patch
+          python
+          rsync
+          wget
+          zstd
+          ${{ env.mspkg }}-python
+          ${{ env.mspkg }}-python-distlib
+          ${{ env.mspkg }}-python-pip
+          ${{ env.mspkg }}-python-setuptools
+          ${{ env.mspkg }}-python-sphinx
+          ${{ env.mspkg }}-python-sphinx_rtd_theme
+          ${{ env.mspkg }}-angleproject
+          ${{ env.mspkg }}-autotools
+          ${{ env.mspkg }}-binutils
+          ${{ env.mspkg }}-toolchain
+          ${{ env.mspkg }}-tools
+          ${{ env.mspkg }}-7zip
+          ${{ env.mspkg }}-cairo
+          ${{ env.mspkg }}-capstone
+          ${{ env.mspkg }}-curl
+          ${{ env.mspkg }}-cyrus-sasl
+          ${{ env.mspkg }}-dtc
+          ${{ env.mspkg }}-expat
+          ${{ env.mspkg }}-fontconfig
+          ${{ env.mspkg }}-freetype
+          ${{ env.mspkg }}-gcc
+          ${{ env.mspkg }}-gdk-pixbuf2
+          ${{ env.mspkg }}-gettext-runtime
+          ${{ env.mspkg }}-gettext-tools
+          ${{ env.mspkg }}-glib2
+          ${{ env.mspkg }}-gnutls
+          ${{ env.mspkg }}-gst-libav
+          ${{ env.mspkg }}-gst-plugins-ugly
+          ${{ env.mspkg }}-gtk3
+          ${{ env.mspkg }}-gtk-vnc
+          ${{ env.mspkg }}-jack2
+          ${{ env.mspkg }}-libcacard
+          ${{ env.mspkg }}-libgcrypt
+          ${{ env.mspkg }}-libepoxy
+          ${{ env.mspkg }}-libnfs
+          ${{ env.mspkg }}-libpng
+          ${{ env.mspkg }}-libslirp
+          ${{ env.mspkg }}-libssh
+          ${{ env.mspkg }}-libssh2
+          ${{ env.mspkg }}-libtasn1
+          ${{ env.mspkg }}-libusb
+          ${{ env.mspkg }}-libxml2
+          ${{ env.mspkg }}-lz4
+          ${{ env.mspkg }}-lzo2
+          ${{ env.mspkg }}-meson
+          ${{ env.mspkg }}-msitools
+          ${{ env.mspkg }}-ncurses
+          ${{ env.mspkg }}-nettle
+          ${{ env.mspkg }}-ninja
+          ${{ env.mspkg }}-pcre2
+          ${{ env.mspkg }}-pixman
+          ${{ env.mspkg }}-pkgconf
+          ${{ env.mspkg }}-pulseaudio
+          ${{ env.mspkg }}-SDL2
+          ${{ env.mspkg }}-SDL2_image
+          ${{ env.mspkg }}-SDL2_sound
+          ${{ env.mspkg }}-snappy
+          ${{ env.mspkg }}-spice
+          ${{ env.mspkg }}-spice-gtk
+          ${{ env.mspkg }}-spice-protocol
+          ${{ env.mspkg }}-usbredir
+          ${{ env.mspkg }}-xz
+          ${{ env.mspkg }}-zlib
+          ${{ env.mspkg }}-zstd
+
+    - name: Fetching QEMU source
+      continue-on-error: true
+      shell: msys2 {0}
+      run: |
+        echo "Cloning QEMU source"
+        git clone --depth 1 --branch "${{ env.qemu_ref }}" https://github.com/qemu/qemu.git "${{ env.qemu_src_dir }}"
+        cd "${{ env.qemu_src_dir }}"
+        echo "Fetched QEMU tag: $(git describe --tags)"
+
+    - name: Patching build
+      shell: msys2 {0}
+      run: |
+        echo "Applying qemu-3dfx patch stack"
+        cd qemu-3dfx-arch
+        PATCH_ARGS=(
+          scripts/apply_qemu_patches.sh
+          --src-dir "../${{ env.qemu_src_dir }}"
+          --primary-patch "${{ env.primary_patch }}"
+        )
+        if [[ "${{ github.event.inputs.apply_experimental }}" == "true" ]]; then
+          PATCH_ARGS+=(--with-qemu-exp)
+          echo "Experimental patches ENABLED"
+        else
+          echo "Experimental patches DISABLED"
+        fi
+        bash "${PATCH_ARGS[@]}"
+
+        # Re-sign with main repo commit (apply_qemu_patches.sh signs with submodule commit)
+        echo "Re-signing with main repo commit: ${{ env.COMMIT_SHORT }}"
+        bash scripts/sign_commit -git=".." "${{ env.COMMIT_SHORT }}"
+
+    - name: Build local virglrenderer package
+      shell: msys2 {0}
+      run: |
+        cd qemu-3dfx-arch/virgil3d/MINGW-packages
+        dos2unix PKGBUILD 000*.patch
+        makepkg-mingw -sCLfc --noconfirm
+        pacman -U --noconfirm mingw-w64-*.pkg.tar.zst
+        VIRGL_HDR="${MINGW_PREFIX}/include/virgl/virglrenderer.h"
+        sed -i 's|^#define VIRGL_EXPORT.*$|#define VIRGL_EXPORT __declspec(dllimport)|' "${VIRGL_HDR}"
+        grep -n '^#define VIRGL_EXPORT' "${VIRGL_HDR}"
+
+    - name: Pre-install Python dependencies
+      shell: msys2 {0}
+      run: |
+        python3 -m pip install pycotap sphinx sphinxcontrib-serializinghtml
+
+    - name: Configure build
+      working-directory: ./build
+      shell: msys2 {0}
+      run: |
+        echo "Configuring build"
+        CFLAGS="${CFLAGS//-flto=auto/}"
+        CXXFLAGS="${CXXFLAGS//-flto=auto/}"
+        LDFLAGS="${LDFLAGS//-flto=auto/}"
+        sed -i 's/-Wl,--high-entropy-va/-Wl,--disable-high-entropy-va/g' ../${{ env.qemu_src_dir }}/meson.build
+        ../${{ env.qemu_src_dir }}/configure \
+          --target-list="x86_64-softmmu,i386-softmmu" \
+          --disable-guest-agent-msi \
+          --disable-guest-agent \
+          --disable-werror \
+          --disable-stack-protector \
+          --disable-rust \
+          --enable-whpx \
+          --enable-virglrenderer \
+          --enable-opengl \
+          --enable-gtk \
+          --enable-debug \
+          --enable-sdl \
+          --enable-sdl-image \
+          --enable-slirp \
+          --enable-spice \
+          --prefix=$(pwd)/../install_dir \
+          --extra-cflags="-O2" \
+          --extra-ldflags="-Wl,--disable-high-entropy-va -Wl,--disable-dynamicbase -Wl,--image-base,0x400000"
+
+    - name: Compile build
+      working-directory: ./build
+      shell: msys2 {0}
+      run: |
+        echo "Compiling Build"
+        ninja -j$(nproc)
+
+    - name: Compile Host Openglide
+      shell: msys2 {0}
+      run: |
+        cd qemu-3dfx-arch
+        git submodule update --init --recursive
+        cd wrappers/extra/openglide
+        bash ./bootstrap
+        mkdir ../build && cd ../build
+        ../openglide/configure --disable-sdl && make
+        mkdir -p ../../../install_dir
+        cp -v .libs/libglide2x.dll ../../../install_dir/libglide2x.dll
+        cp -v .libs/libglide3x.dll ../../../install_dir/libglide3x.dll
+
+    - name: Installing build
+      working-directory: ./build
+      shell: msys2 {0}
+      run: |
+        echo "Installing build to output"
+        make install
+        cd ../install_dir
+        bash ../qemu-3dfx-arch/scripts/dll_extract
+        if [ -d ../build/bin ]; then
+          mkdir -p bin
+          cp -rv ../build/bin/* ./bin/
+        else
+          echo "No build/bin directory found; skipping bin staging"
+        fi
+        bash ../qemu-3dfx-arch/scripts/sign_binary
+        cat <<EOF > version.txt
+        QEMU-3dfx (Windows Build)
+        =================================================
+        GitHub Actions Artifact Build
+        ${{ env.branch }} Branch
+        Version ${{ env.buildver }}
+        Built using ${MSYSTEM}
+        Commit ${{ env.COMMIT_SHORT }}
+        EOF
+        unix2dos version.txt build-timestamp.txt
+        echo "Finished build at $(date)"
+
+    - name: Uploading build
+      uses: actions/upload-artifact@v4
+      with:
+        name: bin-windows-mingw64-${{ env.buildver }}-artifact
+        path: ./install_dir
+
+  UCRT64-Windows:
     runs-on: windows-latest
-    timeout-minutes: 60  # 1 hour timeout for wrapper builds
-    
+    timeout-minutes: 180
+    env:
+      buildver: 'qemu-11.0.0'
+      qemu_ref: 'v11.0.0'
+      qemu_src_dir: 'qemu-11.0.0'
+      primary_patch: '00-qemu110x-mesa-glide.patch'
+      mspkg: 'mingw-w64-ucrt-x86_64'
+      branch: ${{ github.ref_name }}
+
     steps:
-    - name: Checkout repository
+    - name: Checkout repo
       uses: actions/checkout@v4
-      
-    - name: Setup MSYS2 (MINGW32 for 32-bit wrappers)
+
+    - name: Initialize submodules
+      shell: bash
+      run: |
+        git submodule update --init --recursive
+        SUBMODULE_COMMIT=$(cd qemu-3dfx-arch && git rev-parse --short HEAD)
+        echo "qemu-3dfx-arch submodule at: ${SUBMODULE_COMMIT}"
+
+    - name: Set up commit ID
+      shell: bash
+      run: |
+        if [ -n "${{ github.event.inputs.commit_id }}" ]; then
+          COMMIT_SHORT="${{ github.event.inputs.commit_id }}"
+          COMMIT_FULL="${{ github.event.inputs.commit_id }}"
+        else
+          COMMIT_SHORT=$(git rev-parse --short HEAD)
+          COMMIT_FULL=$(git rev-parse HEAD)
+        fi
+        echo "COMMIT_SHORT=${COMMIT_SHORT}" >> $GITHUB_ENV
+        echo "COMMIT_FULL=${COMMIT_FULL}" >> $GITHUB_ENV
+        echo "Main repo commit: ${COMMIT_SHORT}"
+
+    - name: Setup MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: UCRT64
+        update: true
+        install: >-
+          base
+          base-devel
+          dos2unix
+          gcc
+          git
+          make
+          ninja
+          patch
+          python
+          rsync
+          wget
+          zstd
+          ${{ env.mspkg }}-python
+          ${{ env.mspkg }}-python-distlib
+          ${{ env.mspkg }}-python-pip
+          ${{ env.mspkg }}-python-setuptools
+          ${{ env.mspkg }}-python-sphinx
+          ${{ env.mspkg }}-python-sphinx_rtd_theme
+          ${{ env.mspkg }}-angleproject
+          ${{ env.mspkg }}-autotools
+          ${{ env.mspkg }}-binutils
+          ${{ env.mspkg }}-toolchain
+          ${{ env.mspkg }}-tools
+          ${{ env.mspkg }}-7zip
+          ${{ env.mspkg }}-cairo
+          ${{ env.mspkg }}-capstone
+          ${{ env.mspkg }}-curl
+          ${{ env.mspkg }}-cyrus-sasl
+          ${{ env.mspkg }}-dtc
+          ${{ env.mspkg }}-expat
+          ${{ env.mspkg }}-fontconfig
+          ${{ env.mspkg }}-freetype
+          ${{ env.mspkg }}-gcc
+          ${{ env.mspkg }}-gdk-pixbuf2
+          ${{ env.mspkg }}-gettext-runtime
+          ${{ env.mspkg }}-gettext-tools
+          ${{ env.mspkg }}-glib2
+          ${{ env.mspkg }}-gnutls
+          ${{ env.mspkg }}-gst-libav
+          ${{ env.mspkg }}-gst-plugins-ugly
+          ${{ env.mspkg }}-gtk3
+          ${{ env.mspkg }}-gtk-vnc
+          ${{ env.mspkg }}-jack2
+          ${{ env.mspkg }}-libcacard
+          ${{ env.mspkg }}-libgcrypt
+          ${{ env.mspkg }}-libepoxy
+          ${{ env.mspkg }}-libnfs
+          ${{ env.mspkg }}-libpng
+          ${{ env.mspkg }}-libslirp
+          ${{ env.mspkg }}-libssh
+          ${{ env.mspkg }}-libssh2
+          ${{ env.mspkg }}-libtasn1
+          ${{ env.mspkg }}-libusb
+          ${{ env.mspkg }}-libxml2
+          ${{ env.mspkg }}-lz4
+          ${{ env.mspkg }}-lzo2
+          ${{ env.mspkg }}-meson
+          ${{ env.mspkg }}-msitools
+          ${{ env.mspkg }}-ncurses
+          ${{ env.mspkg }}-nettle
+          ${{ env.mspkg }}-ninja
+          ${{ env.mspkg }}-pcre2
+          ${{ env.mspkg }}-pixman
+          ${{ env.mspkg }}-pkgconf
+          ${{ env.mspkg }}-pulseaudio
+          ${{ env.mspkg }}-SDL2
+          ${{ env.mspkg }}-SDL2_image
+          ${{ env.mspkg }}-SDL2_sound
+          ${{ env.mspkg }}-snappy
+          ${{ env.mspkg }}-spice
+          ${{ env.mspkg }}-spice-gtk
+          ${{ env.mspkg }}-spice-protocol
+          ${{ env.mspkg }}-usbredir
+          ${{ env.mspkg }}-xz
+          ${{ env.mspkg }}-zlib
+          ${{ env.mspkg }}-zstd
+
+    - name: Fetching QEMU source
+      continue-on-error: true
+      shell: msys2 {0}
+      run: |
+        echo "Cloning QEMU source"
+        git clone --depth 1 --branch "${{ env.qemu_ref }}" https://github.com/qemu/qemu.git "${{ env.qemu_src_dir }}"
+        cd "${{ env.qemu_src_dir }}"
+        echo "Fetched QEMU tag: $(git describe --tags)"
+
+    - name: Patching build
+      shell: msys2 {0}
+      run: |
+        echo "Applying qemu-3dfx patch stack"
+        cd qemu-3dfx-arch
+        PATCH_ARGS=(
+          scripts/apply_qemu_patches.sh
+          --src-dir "../${{ env.qemu_src_dir }}"
+          --primary-patch "${{ env.primary_patch }}"
+        )
+        if [[ "${{ github.event.inputs.apply_experimental }}" == "true" ]]; then
+          PATCH_ARGS+=(--with-qemu-exp)
+          echo "Experimental patches ENABLED"
+        else
+          echo "Experimental patches DISABLED"
+        fi
+        bash "${PATCH_ARGS[@]}"
+
+        # Re-sign with main repo commit (apply_qemu_patches.sh signs with submodule commit)
+        echo "Re-signing with main repo commit: ${{ env.COMMIT_SHORT }}"
+        bash scripts/sign_commit -git=".." "${{ env.COMMIT_SHORT }}"
+
+    - name: Build local virglrenderer package
+      shell: msys2 {0}
+      run: |
+        cd qemu-3dfx-arch/virgil3d/MINGW-packages
+        dos2unix PKGBUILD 000*.patch
+        makepkg-mingw -sCLfc --noconfirm
+        pacman -U --noconfirm mingw-w64-*.pkg.tar.zst
+        VIRGL_HDR="${MINGW_PREFIX}/include/virgl/virglrenderer.h"
+        sed -i 's|^#define VIRGL_EXPORT.*$|#define VIRGL_EXPORT __declspec(dllimport)|' "${VIRGL_HDR}"
+        grep -n '^#define VIRGL_EXPORT' "${VIRGL_HDR}"
+
+    - name: Pre-install Python dependencies
+      shell: msys2 {0}
+      run: |
+        python3 -m pip install pycotap sphinx sphinxcontrib-serializinghtml
+
+    - name: Configure build
+      working-directory: ./build
+      shell: msys2 {0}
+      run: |
+        echo "Configuring build"
+        CFLAGS="${CFLAGS//-flto=auto/}"
+        CXXFLAGS="${CXXFLAGS//-flto=auto/}"
+        LDFLAGS="${LDFLAGS//-flto=auto/}"
+        sed -i 's/-Wl,--high-entropy-va/-Wl,--disable-high-entropy-va/g' ../${{ env.qemu_src_dir }}/meson.build
+        ../${{ env.qemu_src_dir }}/configure \
+          --target-list="x86_64-softmmu,i386-softmmu" \
+          --disable-guest-agent-msi \
+          --disable-guest-agent \
+          --disable-werror \
+          --disable-stack-protector \
+          --disable-rust \
+          --enable-whpx \
+          --enable-virglrenderer \
+          --enable-opengl \
+          --enable-gtk \
+          --enable-debug \
+          --enable-sdl \
+          --enable-sdl-image \
+          --enable-slirp \
+          --enable-spice \
+          --prefix=$(pwd)/../install_dir \
+          --extra-cflags="-O2" \
+          --extra-ldflags="-Wl,--disable-high-entropy-va -Wl,--disable-dynamicbase -Wl,--image-base,0x400000"
+
+    - name: Compile build
+      working-directory: ./build
+      shell: msys2 {0}
+      run: |
+        echo "Compiling Build"
+        ninja -j$(nproc)
+
+    - name: Compile Host Openglide
+      shell: msys2 {0}
+      run: |
+        cd qemu-3dfx-arch
+        git submodule update --init --recursive
+        cd wrappers/extra/openglide
+        bash ./bootstrap
+        mkdir ../build && cd ../build
+        ../openglide/configure --disable-sdl && make
+        mkdir -p ../../../install_dir
+        cp -v .libs/libglide2x.dll ../../../install_dir/libglide2x.dll
+        cp -v .libs/libglide3x.dll ../../../install_dir/libglide3x.dll
+
+    - name: Installing build
+      working-directory: ./build
+      shell: msys2 {0}
+      run: |
+        echo "Installing build to output"
+        make install
+        cd ../install_dir
+        bash ../qemu-3dfx-arch/scripts/dll_extract
+        if [ -d ../build/bin ]; then
+          mkdir -p bin
+          cp -rv ../build/bin/* ./bin/
+        else
+          echo "No build/bin directory found; skipping bin staging"
+        fi
+        bash ../qemu-3dfx-arch/scripts/sign_binary
+        cat <<EOF > version.txt
+        QEMU-3dfx (Windows Build)
+        =================================================
+        GitHub Actions Artifact Build
+        ${{ env.branch }} Branch
+        Version ${{ env.buildver }}
+        Built using ${MSYSTEM}
+        Commit ${{ env.COMMIT_SHORT }}
+        EOF
+        unix2dos version.txt build-timestamp.txt
+        echo "Finished build at $(date)"
+
+    - name: Uploading build
+      uses: actions/upload-artifact@v4
+      with:
+        name: bin-windows-ucrt64-${{ env.buildver }}-artifact
+        path: ./install_dir
+
+  Wrappers:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Initialize submodules
+      shell: bash
+      run: |
+        git submodule update --init --recursive
+
+    - name: Set up commit ID
+      shell: bash
+      run: |
+        if [ -n "${{ github.event.inputs.commit_id }}" ]; then
+          COMMIT_SHORT="${{ github.event.inputs.commit_id }}"
+        else
+          COMMIT_SHORT=$(git rev-parse --short HEAD)
+        fi
+        echo "COMMIT_SHORT=${COMMIT_SHORT}" >> $GITHUB_ENV
+        echo "Main repo commit: ${COMMIT_SHORT}"
+
+    - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
       with:
         msystem: MINGW32
         update: true
         install: >-
-         base-devel
-         dos2unix
-         git
-         unzip
-         vim
-         wget
-         xorriso
-         mingw-w64-i686-autotools
-         mingw-w64-i686-binutils
-         mingw-w64-i686-gcc
-         mingw-w64-i686-tools
+          base-devel
+          dos2unix
+          git
+          unzip
+          vim
+          wget
+          xorriso
+          mingw-w64-i686-autotools
+          mingw-w64-i686-binutils
+          mingw-w64-i686-gcc
+          mingw-w64-i686-tools
 
     - name: Adding optional support
       shell: msys2 {0}
       run: |
         echo "initialize submodules"
+        cd qemu-3dfx-arch
         git submodule update --init --recursive
         echo "Downloading watcom"
         wget -q https://github.com/open-watcom/open-watcom-v2/releases/download/2025-01-03-Build/ow-snapshot.tar.xz
@@ -593,12 +589,12 @@ jobs:
       shell: msys2 {0}
       run: |
         echo "Adding Environment Variables"
-        export WATCOM=$(pwd)/watcom
+        export WATCOM=$(pwd)/qemu-3dfx-arch/watcom
         export PATH=$WATCOM/binnt:$PATH:$WATCOM/binw:$PATH
         export EDPATH=$WATCOM/eddat
-        export PATH=$(pwd)/djgpp/bin:$PATH
+        export PATH=$(pwd)/qemu-3dfx-arch/djgpp/bin:$PATH
         echo "Compiling 3dfx wrappers"
-        cd wrappers/3dfx
+        cd qemu-3dfx-arch/wrappers/3dfx
         mkdir build && cd build
         bash ../../../scripts/conf_wrapper
         make && make clean
@@ -612,28 +608,28 @@ jobs:
         bash ./bootstrap
         mkdir ../build && cd ../build
         ../openglide/configure --disable-sdl && make
-        echo "Compilng g2xwrap"
+        echo "Compiling g2xwrap"
         cd ../g2xwrap
         make
 
     - name: Installing wrappers
       shell: msys2 {0}
-      working-directory: ./wrappers/iso
+      working-directory: ./qemu-3dfx-arch/wrappers/iso
       run: |
         echo "Making Wrapper Disk"
         mkdir -p wrapgl/icd wrapfx g2xwrap
         cp -rf ../3dfx/build/*.{vxd,sys,dll,dxe,ovl,exe} ./wrapfx/
         cp -rf ../mesa/build/*.{dll,exe} ./wrapgl/
         cp -rf ../extra/g2xwrap/*.dll g2xwrap/
-        bash "${GITHUB_WORKSPACE}/sign_binary.sh"
+        bash ../../scripts/sign_binary
         cp ../texts/readme.txt readme.txt
-        cp "${GITHUB_WORKSPACE}/qemu-3dfx-arch/LICENSE" license.txt
+        cp ../../LICENSE license.txt
         cp -rf ../texts/readme_icd.txt ../mesa/registry/*.reg wrapgl/icd
         mv wrapgl/icd/readme_icd.txt wrapgl/icd/readme.txt
         mv wrapgl/qmfxgl32.dll wrapgl/icd/qmfxgl32.dll
         unix2dos commit.txt license.txt readme.txt autorun.inf open.bat wrapgl/icd/{readme.txt,*.reg}
         cd ..
-        xorriso -as mkisofs -JR -V "VMWRAPPER-$(git log --format="%h" -n 1)" -o wrappers.iso iso
+        xorriso -as mkisofs -JR -V "VMWRAPPER-${{ env.COMMIT_SHORT }}" -o wrappers.iso iso
         echo "Finished build at $(date)"
 
     - name: Uploading wrappers
@@ -641,3 +637,43 @@ jobs:
       with:
         name: wrappers-artifact
         path: ./qemu-3dfx-arch/wrappers
+
+  Release:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release == 'true'
+    needs:
+      - MINGW64-Windows
+      - UCRT64-Windows
+      - Wrappers
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    env:
+      buildver: 'qemu-11.0.0'
+
+    steps:
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./artifacts
+
+    - name: Pack release assets
+      run: |
+        set -euxo pipefail
+        cd artifacts
+        zip -qry ../bin-windows-mingw64-${{ env.buildver }}-artifact.zip bin-windows-mingw64-${{ env.buildver }}-artifact
+        zip -qry ../bin-windows-ucrt64-${{ env.buildver }}-artifact.zip bin-windows-ucrt64-${{ env.buildver }}-artifact
+        zip -qry ../wrappers-artifact.zip wrappers-artifact
+
+    - name: Publish rolling release
+      uses: softprops/action-gh-release@v3
+      with:
+        tag_name: nightly-${{ env.buildver }}
+        name: Nightly ${{ env.buildver }}
+        prerelease: true
+        make_latest: false
+        generate_release_notes: false
+        files: |
+          bin-windows-mingw64-${{ env.buildver }}-artifact.zip
+          bin-windows-ucrt64-${{ env.buildver }}-artifact.zip
+          wrappers-artifact.zip

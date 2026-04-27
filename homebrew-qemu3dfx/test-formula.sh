@@ -258,6 +258,14 @@ case "$(echo "${QEMU_3DFX_EXPERIMENTAL_PATCHES}" | tr '[:upper:]' '[:lower:]')" 
 esac
 bash scripts/apply_qemu_patches.sh "${PATCH_ARGS[@]}"
 
+# Re-sign with main repo commit (apply_qemu_patches.sh signs with submodule commit)
+MAIN_COMMIT=$(cat /tmp/qemu_3dfx_commit_override 2>/dev/null)
+if [ -n "$MAIN_COMMIT" ]; then
+    echo "Re-signing with main repo commit: $MAIN_COMMIT"
+    cd "$QEMU_SRC_DIR/qemu-src"
+    bash "$ARCH_SUBMODULE/scripts/sign_commit" -git="$REPO_ROOT" "$MAIN_COMMIT"
+fi
+
 echo "All patches applied!"
 
 # macOS fixes after patching
