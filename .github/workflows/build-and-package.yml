@@ -211,7 +211,7 @@ jobs:
         echo "=== Testing build features ==="
 
         echo "Checking 3dfx Mesa GL pass-through in binary..."
-        if strings qemu-system-i386 | grep -q "3dfx"; then
+        if strings "$QEMU_BIN_DIR/qemu-system-i386" | grep -q "3dfx"; then
           echo "✅ 3dfx pass-through support compiled in"
         else
           echo "⚠️ 3dfx pass-through support not detected"
