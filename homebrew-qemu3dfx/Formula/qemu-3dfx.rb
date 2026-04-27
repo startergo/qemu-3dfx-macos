@@ -329,11 +329,19 @@ class Qemu3dfx < Formula
         end
       end
 
+      # GL/glu.h from mesa-glu
+      mesa_glu_gl = "#{HOMEBREW_PREFIX}/opt/mesa-glu/include/GL"
+      if Dir.exist?(mesa_glu_gl)
+        Dir.glob("#{mesa_glu_gl}/*.h").each do |h|
+          (gl_include_dir/File.basename(h)).make_symlink(h)
+        end
+      end
+
       system "./configure", "--disable-sdl",
         "--prefix=#{prefix}",
-        "CPPFLAGS=-I#{include_dir} -I#{HOMEBREW_PREFIX}/include -I#{HOMEBREW_PREFIX}/opt/mesa/include",
-        "CFLAGS=-I#{include_dir} -I#{HOMEBREW_PREFIX}/include -I#{HOMEBREW_PREFIX}/opt/mesa/include",
-        "CXXFLAGS=-I#{include_dir} -I#{HOMEBREW_PREFIX}/include -I#{HOMEBREW_PREFIX}/opt/mesa/include",
+        "CPPFLAGS=-I#{include_dir} -I#{HOMEBREW_PREFIX}/include -I#{HOMEBREW_PREFIX}/opt/mesa/include -I#{HOMEBREW_PREFIX}/opt/mesa-glu/include",
+        "CFLAGS=-I#{include_dir} -I#{HOMEBREW_PREFIX}/include -I#{HOMEBREW_PREFIX}/opt/mesa/include -I#{HOMEBREW_PREFIX}/opt/mesa-glu/include",
+        "CXXFLAGS=-I#{include_dir} -I#{HOMEBREW_PREFIX}/include -I#{HOMEBREW_PREFIX}/opt/mesa/include -I#{HOMEBREW_PREFIX}/opt/mesa-glu/include",
         "LDFLAGS=-L#{HOMEBREW_PREFIX}/lib",
         "LIBS=-lX11"
 

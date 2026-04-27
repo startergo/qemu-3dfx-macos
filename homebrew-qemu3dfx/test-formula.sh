@@ -341,13 +341,15 @@ echo "Bootstrapping OpenGLide..."
 chmod +x bootstrap
 ./bootstrap
 
-# Set up GL headers from Homebrew mesa
+# Set up GL headers from Homebrew mesa and mesa-glu
 INCLUDE_DIR="$GLIDE_SRC_DIR/include"
 mkdir -p "$INCLUDE_DIR/GL" "$INCLUDE_DIR/KHR"
 
+BREW_PREFIX="$(brew --prefix)"
+
 # Symlink GL headers from Homebrew mesa
-MESA_GL_INCLUDE="$(brew --prefix)/include/GL"
-MESA_KHR_INCLUDE="$(brew --prefix)/include/KHR"
+MESA_GL_INCLUDE="${BREW_PREFIX}/include/GL"
+MESA_KHR_INCLUDE="${BREW_PREFIX}/include/KHR"
 if [ -d "$MESA_GL_INCLUDE" ]; then
     for header in "$MESA_GL_INCLUDE"/*.h; do
         ln -sf "$header" "$INCLUDE_DIR/GL/$(basename "$header")"
@@ -359,13 +361,20 @@ if [ -d "$MESA_KHR_INCLUDE" ]; then
     done
 fi
 
+# Symlink GL/glu.h from mesa-glu (may not be linked into HOMEBREW_PREFIX/include)
+MESA_GLU_GL="${BREW_PREFIX}/opt/mesa-glu/include/GL"
+if [ -d "$MESA_GLU_GL" ]; then
+    for header in "$MESA_GLU_GL"/*.h; do
+        ln -sf "$header" "$INCLUDE_DIR/GL/$(basename "$header")"
+    done
+fi
+
 echo "Configuring OpenGLide..."
-BREW_PREFIX="$(brew --prefix)"
 ./configure --disable-sdl \
     --prefix="$GLIDE_INSTALL_PREFIX" \
-    "CPPFLAGS=-I$INCLUDE_DIR -I${BREW_PREFIX}/include -I${BREW_PREFIX}/opt/mesa/include" \
-    "CFLAGS=-I$INCLUDE_DIR -I${BREW_PREFIX}/include -I${BREW_PREFIX}/opt/mesa/include" \
-    "CXXFLAGS=-I$INCLUDE_DIR -I${BREW_PREFIX}/include -I${BREW_PREFIX}/opt/mesa/include" \
+    "CPPFLAGS=-I$INCLUDE_DIR -I${BREW_PREFIX}/include -I${BREW_PREFIX}/opt/mesa/include -I${BREW_PREFIX}/opt/mesa-glu/include" \
+    "CFLAGS=-I$INCLUDE_DIR -I${BREW_PREFIX}/include -I${BREW_PREFIX}/opt/mesa/include -I${BREW_PREFIX}/opt/mesa-glu/include" \
+    "CXXFLAGS=-I$INCLUDE_DIR -I${BREW_PREFIX}/include -I${BREW_PREFIX}/opt/mesa/include -I${BREW_PREFIX}/opt/mesa-glu/include" \
     "LDFLAGS=-L${BREW_PREFIX}/lib" \
     "LIBS=-lX11"
 
