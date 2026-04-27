@@ -202,20 +202,23 @@ jobs:
         echo "QEMU_VERSION=${QEMU_VERSION}" >> $GITHUB_ENV
         echo "📦 Detected QEMU version: ${QEMU_VERSION}"
 
-    - name: Test 3dfx device availability
+    - name: Test 3dfx Mesa GL pass-through
       if: steps.should_run.outputs.should_run == 'true'
       run: |
         QEMU_BIN_DIR="/tmp/qemu-11.0.0-3dfx/install_dir/bin"
         export PATH="$QEMU_BIN_DIR:$PATH"
 
-        echo "=== Testing device availability ==="
+        echo "=== Testing build features ==="
 
-        echo "Testing 3dfx device with qemu-system-i386..."
-        qemu-system-i386 -device help | grep -i "3dfx\|glide\|voodoo" || {
-          echo "ℹ️ 3dfx device may require specific parameters"
-          echo "Testing with voodoo parameter..."
-          qemu-system-i386 -device 3dfx,help 2>/dev/null || true
-        }
+        echo "Checking 3dfx Mesa GL pass-through in binary..."
+        if strings qemu-system-i386 | grep -q "3dfx"; then
+          echo "✅ 3dfx pass-through support compiled in"
+        else
+          echo "⚠️ 3dfx pass-through support not detected"
+        fi
+
+        echo "Checking for host-side Glide libraries..."
+        ls -la "/tmp/qemu-11.0.0-3dfx/install_dir/lib/"*glide* 2>/dev/null || echo "⚠️ No Glide libraries found"
 
         echo "Testing Virgl3D device with qemu-system-x86_64..."
         qemu-system-x86_64 -device help | grep -i "virtio-vga-gl\|virgl" || echo "ℹ️ Virgl3D support not detected"
@@ -251,6 +254,28 @@ jobs:
         # List all available libraries for debugging
         echo "=== Available libraries in Homebrew prefix ==="
         ls -la "${HOMEBREW_PREFIX}/lib/" | grep -E "(virgl|spice|SDL2|epoxy|EGL|GLES)" || echo "No matching libraries found"
+        echo "=== Available libraries in install_dir ==="
+        ls -la "${INSTALL_DIR}/lib/" 2>/dev/null || echo "No install_dir/lib"
+
+        # Copy Glide libraries (3dfx host-side Glide-to-OpenGL translation, built by OpenGLide)
+        GLIDE_FOUND=false
+        for glide_lib in libglide2x libglide3x; do
+          # Check install_dir first (built during test-formula.sh)
+          for search_dir in "${INSTALL_DIR}/lib" "${HOMEBREW_PREFIX}/lib"; do
+            for ext in "0.dylib" "dylib"; do
+              if [ -f "${search_dir}/${glide_lib}.${ext}" ]; then
+                cp "${search_dir}/${glide_lib}.${ext}" "${STAGE_DIR}/opt/homebrew/lib/"
+                ln -sf "${glide_lib}.${ext}" "${STAGE_DIR}/opt/homebrew/lib/${glide_lib}.dylib"
+                echo "✅ Copied ${glide_lib} from ${search_dir}"
+                GLIDE_FOUND=true
+                break 2
+              fi
+            done
+          done
+        done
+        if [ "$GLIDE_FOUND" = "false" ]; then
+          echo "⚠️ No Glide libraries found"
+        fi
 
         # Copy ANGLE libraries (EGL/GLES via Metal backend — needed by libepoxy at runtime)
         ANGLE_LIB_DIR="${HOMEBREW_PREFIX}/opt/angle/lib"
@@ -378,6 +403,8 @@ jobs:
         
         # Create symlinks in /usr/local/lib for compatibility (absolute paths)
         echo "Creating compatibility symlinks..."
+        ln -sf "/opt/homebrew/lib/libglide2x.dylib" "${STAGE_DIR}/usr/local/lib/libglide2x.dylib"
+        ln -sf "/opt/homebrew/lib/libglide3x.dylib" "${STAGE_DIR}/usr/local/lib/libglide3x.dylib"
         ln -sf "/opt/homebrew/lib/libSDL2.dylib" "${STAGE_DIR}/usr/local/lib/libSDL2.dylib"
         if [ -f "${STAGE_DIR}/opt/homebrew/lib/libvirglrenderer.dylib" ]; then
           ln -sf "/opt/homebrew/lib/libvirglrenderer.dylib" "${STAGE_DIR}/usr/local/lib/libvirglrenderer.dylib"
@@ -416,6 +443,15 @@ jobs:
         echo "Experimental Patches: ${{ github.event.inputs.apply_experimental || 'false' }}" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
         echo "Auto-signed: ${{ github.event.inputs.auto_sign || 'false' }}" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
         echo "Repository: startergo/qemu-3dfx-macos" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
+        echo "" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
+        echo "3dfx support: Mesa GL pass-through via host-side Glide libraries" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
+        echo "Guest-side Glide stubs must be installed separately" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
+        echo "" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
+        echo "IMPORTANT: x86-64-v2 CPU Requirement" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
+        echo "Guest-side Glide libraries are optimized for x86-64-v2 (SSE4.2, POPCNT, CX16)." >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
+        echo "Apple Silicon uses TCG emulation which defaults to SSE2 only." >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
+        echo "Add this flag to enable x86-64-v2 in the emulated CPU:" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
+        echo "  -cpu qemu64,+sse4.2,+popcnt,+cx16" >> "${STAGE_DIR}/opt/homebrew/share/qemu-3dfx/build-info.txt"
         
         # Show package structure
         echo "=== Package structure ==="
@@ -585,6 +621,12 @@ jobs:
         fi
         
         # Test library symlinks
+        if [ -L "opt/homebrew/lib/libglide2x.dylib" ]; then
+          echo "✅ Glide2x symlink found: $(readlink "opt/homebrew/lib/libglide2x.dylib")"
+        else
+          echo "⚠️ Glide2x symlink missing"
+        fi
+
         if [ -L "opt/homebrew/lib/libvirglrenderer.dylib" ]; then
           echo "✅ VirGL renderer symlink found: $(readlink "opt/homebrew/lib/libvirglrenderer.dylib")"
         else
@@ -592,10 +634,15 @@ jobs:
         fi
 
         # Test compatibility symlinks
-        if [ -L "usr/local/lib/libvirglrenderer.dylib" ]; then
-          echo "✅ Compatibility symlink found: $(readlink "usr/local/lib/libvirglrenderer.dylib")"
+        if [ -L "usr/local/lib/libglide2x.dylib" ]; then
+          echo "✅ Glide2x compatibility symlink found"
         else
-          echo "⚠️ Compatibility symlink missing"
+          echo "⚠️ Glide2x compatibility symlink missing"
+        fi
+        if [ -L "usr/local/lib/libvirglrenderer.dylib" ]; then
+          echo "✅ VirGL compatibility symlink found"
+        else
+          echo "⚠️ VirGL compatibility symlink missing"
         fi
         
     - name: Test signing script dependencies
@@ -725,24 +772,27 @@ jobs:
         
         The package installs to \`/opt/homebrew\` with the following structure:
         - \`/opt/homebrew/bin/\` - QEMU binaries
-        - \`/opt/homebrew/lib/\` - VirGL and SDL2 libraries
+        - \`/opt/homebrew/lib/\` - Glide, VirGL, EGL, and SDL2 libraries
         - \`/opt/homebrew/share/qemu/\` - QEMU data files (BIOS, ROMs)
         - \`/opt/homebrew/sign/\` - Code signing scripts
         - \`/usr/local/lib/\` - Compatibility symlinks
         
         ## Usage Examples
-        
-        ### 3dfx Glide Support
+
+        ### 3dfx Glide Pass-Through
+        The 3dfx support uses Mesa GL pass-through: guest-side Glide stubs (glide2x.dll, glide3x.dll)
+        intercept Glide API calls which QEMU routes to host-side libglide2x/libglide3x for OpenGL translation.
+        Guest-side stubs must be installed separately.
+
         \`\`\`bash
         /opt/homebrew/bin/qemu-system-i386 \\
           -machine pc-i440fx-2.1 \\
           -cpu pentium2 \\
           -m 128 \\
-          -device 3dfx,voodoo=voodoo2 \\
           -hda dos.img
         \`\`\`
-        
-        ### Mesa OpenGL Support
+
+        ### Mesa OpenGL Pass-Through
         \`\`\`bash
         /opt/homebrew/bin/qemu-system-x86_64 \\
           -enable-hvf \\

@@ -15,9 +15,9 @@ class Qemu3dfx < Formula
   depends_on "ninja" => :build
   depends_on "pkg-config" => :build
   depends_on "python@3.14" => :build
-  depends_on "autoconf" => :build
-  depends_on "automake" => :build
-  depends_on "libtool" => :build
+  depends_on "autoconf" => :build      # Required for OpenGLide bootstrap
+  depends_on "automake" => :build      # Required for OpenGLide bootstrap
+  depends_on "libtool" => :build       # Required for OpenGLide
 
   # Runtime dependencies
   depends_on "capstone"
@@ -57,13 +57,18 @@ class Qemu3dfx < Formula
   depends_on "libxinerama"
   depends_on "libxi"
   depends_on "libxcursor"
-  depends_on "xorgproto"
   depends_on "libxxf86vm"
 
   # Virglrenderer resource (built with all 6 MINGW-packages patches)
   resource "virglrenderer" do
     url "https://gitlab.freedesktop.org/virgl/virglrenderer/-/archive/1.3.0/virglrenderer-1.3.0.tar.bz2"
     sha256 "a3486ff05c01d6a091176128d569138b01a36f173d56fd3195f1f24e4551be87"
+  end
+
+  # OpenGLide resource for building host-side Glide libraries
+  resource "openglide" do
+    url "https://github.com/startergo/qemu-xtra/archive/e1e9399f7551fc9d1f8f40d66ff89f94579ce2d1.tar.gz"
+    sha256 "85cf72ae9516c1d105fb2016bc55b56723ee9525a87bb0e994f88131d7e403c7"
   end
 
   def install
@@ -121,6 +126,9 @@ class Qemu3dfx < Formula
       end
       system "ninja", "install"
     end
+
+    # Build Glide shared libraries from OpenGLide
+    build_glide_libraries
 
     # Copy 3dfx wrapper sources and signing files
     copy_3dfx_wrapper_sources
@@ -187,16 +195,29 @@ class Qemu3dfx < Formula
         system "patch", "-p2", "-i", patch_0001
       end
 
-      # Apply 0002-0006 at p1 (matching PKGBUILD)
-      Dir["#{patches_dir}/000[2-6]-*.patch"].sort.each do |patch_file|
+      # Apply 0002-0008 at p1 (matching PKGBUILD)
+      Dir["#{patches_dir}/000[2-8]-*.patch"].sort.each do |patch_file|
         ohai "Applying #{File.basename(patch_file)} (p1)"
         system "patch", "-p1", "-i", patch_file
       end
+
+      # ANGLE and libepoxy paths for EGL support
+      angle = Formula["startergo/angle/angle"]
+      libepoxy = Formula["startergo/libepoxy/libepoxy"]
+      angle_include = angle.include.to_s
+      combined_pc_path = [
+        "#{angle.lib}/pkgconfig",
+        "#{libepoxy.lib}/pkgconfig",
+        ENV["PKG_CONFIG_PATH"],
+      ].compact.join(":")
 
       mkdir "build" do
         system "meson", "setup", "..",
           "--prefix=#{prefix}",
           "--buildtype=release",
+          "-Dc_args=-I#{angle_include}",
+          "-Dcpp_args=-I#{angle_include}",
+          "--pkg-config-path=#{combined_pc_path}",
           "-Dtests=false",
           "-Dplatforms=",
           "-Dminigbm_allocation=false",
@@ -270,6 +291,52 @@ class Qemu3dfx < Formula
     end
 
     ohai "All qemu-3dfx patches applied"
+  end
+
+  # ── Glide libraries (host-side Glide-to-OpenGL translation) ───────────
+
+  def build_glide_libraries
+    glide_build_dir = buildpath/"openglide_build"
+    glide_build_dir.mkpath
+
+    resource("openglide").stage { cp_r ".", glide_build_dir }
+
+    cd glide_build_dir/"openglide" do
+      chmod 0o755, "bootstrap"
+      system "./bootstrap"
+
+      # GL headers from Homebrew mesa (no XQuartz needed)
+      include_dir = glide_build_dir/"include"
+      gl_include_dir = include_dir/"GL"
+      khr_include_dir = include_dir/"KHR"
+      gl_include_dir.mkpath
+      khr_include_dir.mkpath
+
+      mesa_gl = "#{HOMEBREW_PREFIX}/include/GL"
+      if Dir.exist?(mesa_gl)
+        Dir.glob("#{mesa_gl}/*.h").each do |h|
+          (gl_include_dir/File.basename(h)).make_symlink(h)
+        end
+      end
+
+      mesa_khr = "#{HOMEBREW_PREFIX}/include/KHR"
+      if Dir.exist?(mesa_khr)
+        Dir.glob("#{mesa_khr}/*.h").each do |h|
+          (khr_include_dir/File.basename(h)).make_symlink(h)
+        end
+      end
+
+      system "./configure", "--disable-sdl",
+        "--prefix=#{prefix}",
+        "CPPFLAGS=-I#{include_dir}",
+        "CFLAGS=-I#{include_dir}",
+        "CXXFLAGS=-I#{include_dir}",
+        "LDFLAGS=-L#{HOMEBREW_PREFIX}/lib",
+        "LIBS=-lX11"
+
+      system "make"
+      system "make", "install"
+    end
   end
 
   # ── Helper methods ──────────────────────────────────────────────────────

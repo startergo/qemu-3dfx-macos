@@ -74,9 +74,9 @@ brew install git wget meson ninja pkg-config \
     capstone glib gettext gnutls libgcrypt libslirp libusb jpeg-turbo \
     lz4 opus sdl2 zstd swtpm libffi ncurses pixman sdl2_image \
     spice-protocol spice-server libx11 libxext libxfixes libxrandr \
-    libxinerama libxi libxcursor xorgproto libxxf86vm
+    libxinerama libxi libxcursor libxxf86vm
 
-# Install mesa separately — conflicts with angle (EGL/) and xorgproto (GL/)
+# Install mesa separately — conflicts with angle (EGL/)
 brew install mesa || true
 brew link --overwrite mesa 2>/dev/null || true
 
@@ -140,7 +140,7 @@ echo "Extracting virglrenderer..."
 tar -xjf "virglrenderer-${VIRGL_VERSION}.tar.bz2"
 cd "virglrenderer-${VIRGL_VERSION}"
 
-# Replicate PKGBUILD prepare() — apply all 6 patches from virgil3d/MINGW-packages/
+# Replicate PKGBUILD prepare() — apply all 8 patches from virgil3d/MINGW-packages/
 echo "Applying virglrenderer patches (replicating PKGBUILD prepare())..."
 
 VIRGL_PATCHES_DIR="$ARCH_SUBMODULE/virgil3d/MINGW-packages"
@@ -171,8 +171,8 @@ git commit -m "virglrenderer ${VIRGL_VERSION} source" --quiet
 echo "  Applying 0001-Virglrenderer-on-Windows-and-macOS.patch (p2)..."
 patch -p2 -i "$VIRGL_PATCHES_DIR/0001-Virglrenderer-on-Windows-and-macOS.patch"
 
-# Apply patches 0002-0006 (p1 as in PKGBUILD)
-for patch_num in 0002 0003 0004 0005 0006; do
+# Apply patches 0002-0008 (p1 as in PKGBUILD)
+for patch_num in 0002 0003 0004 0005 0006 0007 0008; do
     patch_file="$VIRGL_PATCHES_DIR/${patch_num}-"*.patch
     patch_file=$(ls $patch_file 2>/dev/null | head -1)
     if [ -n "$patch_file" ] && [ -f "$patch_file" ]; then
@@ -194,11 +194,18 @@ python3 -m pip install --break-system-packages PyYAML 2>/dev/null || true
 # Ensure Homebrew meson/ninja are in PATH
 export PATH="$(brew --prefix)/bin:$PATH"
 
+# ANGLE and libepoxy paths for EGL support
+ANGLE_INCLUDE="$(brew --prefix)/opt/angle/include"
+COMBINED_PC_PATH="$(brew --prefix)/opt/angle/lib/pkgconfig:$(brew --prefix)/opt/libepoxy/lib/pkgconfig:${PKG_CONFIG_PATH}"
+
 mkdir -p build
 cd build
 "$(brew --prefix)/bin/meson" setup .. \
     --prefix="$VIRGL_PREFIX" \
     --buildtype=release \
+    -Dc_args="-I${ANGLE_INCLUDE}" \
+    -Dcpp_args="-I${ANGLE_INCLUDE}" \
+    --pkg-config-path="$COMBINED_PC_PATH" \
     -Dtests=false \
     -Dplatforms= \
     -Dminigbm_allocation=false \
@@ -308,6 +315,64 @@ echo "Installing QEMU..."
 ninja install
 
 echo "QEMU build complete!"
+echo
+
+# ── Step 5.5: Build Glide libraries from OpenGLide ─────────────────────
+echo "=== Step 5.5: Building Glide Libraries (OpenGLide) ==="
+
+GLIDE_SRC_DIR="/tmp/openglide-build"
+GLIDE_INSTALL_PREFIX="$QEMU_SRC_DIR/install_dir"
+
+rm -rf "$GLIDE_SRC_DIR"
+mkdir -p "$GLIDE_SRC_DIR"
+
+echo "Downloading OpenGLide from qemu-xtra..."
+curl -L -o "$GLIDE_SRC_DIR/qemu-xtra.tar.gz" \
+    "https://github.com/startergo/qemu-xtra/archive/e1e9399f7551fc9d1f8f40d66ff89f94579ce2d1.tar.gz"
+
+cd "$GLIDE_SRC_DIR"
+tar -xzf qemu-xtra.tar.gz
+cd qemu-xtra-*/openglide
+
+echo "Bootstrapping OpenGLide..."
+chmod +x bootstrap
+./bootstrap
+
+# Set up GL headers from Homebrew mesa
+INCLUDE_DIR="$GLIDE_SRC_DIR/include"
+mkdir -p "$INCLUDE_DIR/GL" "$INCLUDE_DIR/KHR"
+
+# Symlink GL headers from Homebrew mesa
+MESA_GL_INCLUDE="$(brew --prefix)/include/GL"
+MESA_KHR_INCLUDE="$(brew --prefix)/include/KHR"
+if [ -d "$MESA_GL_INCLUDE" ]; then
+    for header in "$MESA_GL_INCLUDE"/*.h; do
+        ln -sf "$header" "$INCLUDE_DIR/GL/$(basename "$header")"
+    done
+fi
+if [ -d "$MESA_KHR_INCLUDE" ]; then
+    for header in "$MESA_KHR_INCLUDE"/*.h; do
+        ln -sf "$header" "$INCLUDE_DIR/KHR/$(basename "$header")"
+    done
+fi
+
+echo "Configuring OpenGLide..."
+./configure --disable-sdl \
+    --prefix="$GLIDE_INSTALL_PREFIX" \
+    "CPPFLAGS=-I$INCLUDE_DIR" \
+    "CFLAGS=-I$INCLUDE_DIR" \
+    "CXXFLAGS=-I$INCLUDE_DIR" \
+    "LDFLAGS=-L$(brew --prefix)/lib" \
+    "LIBS=-lX11"
+
+echo "Building OpenGLide..."
+make
+
+echo "Installing Glide libraries..."
+make install
+
+echo "Verifying Glide libraries:"
+ls -la "$GLIDE_INSTALL_PREFIX/lib/"*glide* 2>/dev/null || echo "  WARNING: No Glide libraries found"
 echo
 
 # ── Step 6: Verification ───────────────────────────────────────────────
