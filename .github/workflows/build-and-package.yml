@@ -397,13 +397,13 @@ jobs:
           echo "✅ Updated qemu.sign script with commit ID: ${COMMIT_SHORT}"
         fi
         
-        # Create symlinks in /usr/local/lib for compatibility (absolute paths)
+        # Create symlinks in /usr/local/lib for compatibility (relative paths so they resolve within the tarball)
         echo "Creating compatibility symlinks..."
-        ln -sf "/opt/homebrew/lib/libglide2x.dylib" "${STAGE_DIR}/usr/local/lib/libglide2x.dylib"
-        ln -sf "/opt/homebrew/lib/libglide3x.dylib" "${STAGE_DIR}/usr/local/lib/libglide3x.dylib"
-        ln -sf "/opt/homebrew/lib/libSDL2.dylib" "${STAGE_DIR}/usr/local/lib/libSDL2.dylib"
+        ln -sf "../../opt/homebrew/lib/libglide2x.dylib" "${STAGE_DIR}/usr/local/lib/libglide2x.dylib"
+        ln -sf "../../opt/homebrew/lib/libglide3x.dylib" "${STAGE_DIR}/usr/local/lib/libglide3x.dylib"
+        ln -sf "../../opt/homebrew/lib/libSDL2.dylib" "${STAGE_DIR}/usr/local/lib/libSDL2.dylib"
         if [ -f "${STAGE_DIR}/opt/homebrew/lib/libvirglrenderer.dylib" ]; then
-          ln -sf "/opt/homebrew/lib/libvirglrenderer.dylib" "${STAGE_DIR}/usr/local/lib/libvirglrenderer.dylib"
+          ln -sf "../../opt/homebrew/lib/libvirglrenderer.dylib" "${STAGE_DIR}/usr/local/lib/libvirglrenderer.dylib"
         fi
         echo "Symlinks in usr/local/lib:"
         ls -la "${STAGE_DIR}/usr/local/lib/"
