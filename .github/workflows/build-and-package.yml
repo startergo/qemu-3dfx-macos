@@ -397,15 +397,31 @@ jobs:
           echo "✅ Updated qemu.sign script with commit ID: ${COMMIT_SHORT}"
         fi
         
-        # Create symlinks in /usr/local/lib for compatibility (relative paths so they resolve within the tarball)
-        echo "Creating compatibility symlinks..."
-        ln -sf "../../opt/homebrew/lib/libglide2x.dylib" "${STAGE_DIR}/usr/local/lib/libglide2x.dylib"
-        ln -sf "../../opt/homebrew/lib/libglide3x.dylib" "${STAGE_DIR}/usr/local/lib/libglide3x.dylib"
-        ln -sf "../../opt/homebrew/lib/libSDL2.dylib" "${STAGE_DIR}/usr/local/lib/libSDL2.dylib"
-        if [ -f "${STAGE_DIR}/opt/homebrew/lib/libvirglrenderer.dylib" ]; then
-          ln -sf "../../opt/homebrew/lib/libvirglrenderer.dylib" "${STAGE_DIR}/usr/local/lib/libvirglrenderer.dylib"
+        # Copy Glide libraries into /usr/local/lib for compatibility
+        # (artifact upload strips symlinks, so we copy actual files)
+        echo "Copying Glide libraries to usr/local/lib..."
+        for glide_lib in libglide2x.0.dylib libglide3x.0.dylib; do
+          if [ -f "${STAGE_DIR}/opt/homebrew/lib/${glide_lib}" ]; then
+            cp "${STAGE_DIR}/opt/homebrew/lib/${glide_lib}" "${STAGE_DIR}/usr/local/lib/"
+            # Create the unversioned name as a relative symlink (target exists within same dir)
+            base_name="${glide_lib%.0.dylib}.dylib"
+            ln -sf "${glide_lib}" "${STAGE_DIR}/usr/local/lib/${base_name}"
+            echo "✅ Copied ${glide_lib} to usr/local/lib"
+          fi
+        done
+        # SDL2 symlink (libSDL2-2.0.0.dylib exists in opt/homebrew/lib/)
+        if [ -f "${STAGE_DIR}/opt/homebrew/lib/libSDL2-2.0.0.dylib" ]; then
+          cp "${STAGE_DIR}/opt/homebrew/lib/libSDL2-2.0.0.dylib" "${STAGE_DIR}/usr/local/lib/"
+          ln -sf "libSDL2-2.0.0.dylib" "${STAGE_DIR}/usr/local/lib/libSDL2.dylib"
+          echo "✅ Copied SDL2 to usr/local/lib"
         fi
-        echo "Symlinks in usr/local/lib:"
+        # VirGL symlink
+        if [ -f "${STAGE_DIR}/opt/homebrew/lib/libvirglrenderer.1.dylib" ]; then
+          cp "${STAGE_DIR}/opt/homebrew/lib/libvirglrenderer.1.dylib" "${STAGE_DIR}/usr/local/lib/"
+          ln -sf "libvirglrenderer.1.dylib" "${STAGE_DIR}/usr/local/lib/libvirglrenderer.dylib"
+          echo "✅ Copied VirGL to usr/local/lib"
+        fi
+        echo "Contents of usr/local/lib:"
         ls -la "${STAGE_DIR}/usr/local/lib/"
 
         # Fix library paths for standalone distribution
