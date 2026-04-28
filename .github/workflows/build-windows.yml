@@ -242,6 +242,7 @@ jobs:
         cd qemu-3dfx-arch
         git submodule update --init --recursive
         cd wrappers/extra/openglide
+        dos2unix configure.ac Makefile.am
         bash ./bootstrap
         mkdir ../build && cd ../build
         ../openglide/configure --disable-sdl && make
@@ -494,6 +495,7 @@ jobs:
         cd qemu-3dfx-arch
         git submodule update --init --recursive
         cd wrappers/extra/openglide
+        dos2unix configure.ac Makefile.am
         bash ./bootstrap
         mkdir ../build && cd ../build
         ../openglide/configure --disable-sdl && make
