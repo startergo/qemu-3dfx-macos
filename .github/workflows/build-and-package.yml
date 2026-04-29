@@ -282,6 +282,20 @@ jobs:
           fi
         done
 
+        # Copy mesa libGL (needed by QEMU at runtime for OpenGL)
+        MESA_LIB_DIR="${HOMEBREW_PREFIX}/opt/mesa/lib"
+        if [ -f "${MESA_LIB_DIR}/libGL.1.dylib" ]; then
+          cp "${MESA_LIB_DIR}/libGL.1.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          ln -sf "libGL.1.dylib" "${STAGE_DIR}/opt/homebrew/lib/libGL.dylib"
+          echo "✅ Copied mesa libGL"
+        elif [ -f "${HOMEBREW_PREFIX}/lib/libGL.1.dylib" ]; then
+          cp "${HOMEBREW_PREFIX}/lib/libGL.1.dylib" "${STAGE_DIR}/opt/homebrew/lib/"
+          ln -sf "libGL.1.dylib" "${STAGE_DIR}/opt/homebrew/lib/libGL.dylib"
+          echo "✅ Copied mesa libGL from Homebrew prefix"
+        else
+          echo "⚠️ mesa libGL not found"
+        fi
+
         # Copy patched libepoxy (EGL 1.5 support via ANGLE)
         EPOXY_LIB_DIR="${HOMEBREW_PREFIX}/opt/libepoxy/lib"
         if [ -f "${EPOXY_LIB_DIR}/libepoxy.0.dylib" ]; then
@@ -423,6 +437,18 @@ jobs:
         for binary in "${STAGE_DIR}/opt/homebrew/bin/"qemu-system-* "${STAGE_DIR}/opt/homebrew/bin/qemu-img"; do
           if [ -f "$binary" ]; then
             install_name_tool -add_rpath /opt/homebrew/lib "$binary" 2>/dev/null || true
+            # Rewrite absolute Homebrew lib paths to @rpath so binaries find bundled libs
+            for lib_path in \
+              "${HOMEBREW_PREFIX}/opt/mesa/lib/libGL.1.dylib" \
+              "${HOMEBREW_PREFIX}/opt/angle/lib/libEGL.dylib" \
+              "${HOMEBREW_PREFIX}/opt/angle/lib/libGLESv2.dylib" \
+              "${HOMEBREW_PREFIX}/opt/libepoxy/lib/libepoxy.0.dylib" \
+              "${HOMEBREW_PREFIX}/opt/sdl2/lib/libSDL2-2.0.0.dylib" \
+              "${HOMEBREW_PREFIX}/opt/virglrenderer-3dfx/lib/libvirglrenderer.1.dylib" \
+              "${HOMEBREW_PREFIX}/opt/spice-server/lib/libspice-server.1.dylib"; do
+              lib_name=$(basename "$lib_path")
+              install_name_tool -change "$lib_path" "@rpath/$lib_name" "$binary" 2>/dev/null || true
+            done
           fi
         done
         # Libraries also need rpath to find their own dependencies
@@ -809,6 +835,21 @@ jobs:
           -hda windows.img
         \`\`\`
         
+        ## Uninstall
+
+        \`\`\`bash
+        # Remove all files and symlinks installed from the tarball
+        tar --zstd -tf <tarball> | grep -v '/$' | sudo xargs -I{} rm -f "/{}"
+
+        # Remove directories created by the package
+        sudo rm -rf /opt/homebrew/sign /opt/homebrew/share/qemu-3dfx
+        sudo rmdir /opt/homebrew/share/qemu/keymaps /opt/homebrew/share/qemu/firmware \
+          /opt/homebrew/share/qemu/dtb /opt/homebrew/share/qemu 2>/dev/null
+        \`\`\`
+
+        > **Note**: \`rmdir\` only removes empty directories. If you have QEMU installed via Homebrew,
+        > those files will remain and the directories won't be removed.
+
         ## Files in this Release
         $(ls -la release-assets/ | tail -n +2 | awk '{print "- " $9 " (" $5 " bytes)"}')
         EOF
