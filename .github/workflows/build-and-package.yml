@@ -434,6 +434,7 @@ jobs:
 
         # Copy missing transitive dependencies BEFORE rewriting paths
         # (otool -L shows absolute paths only before we rewrite them to @rpath)
+        # Matches both opt/ and Cellar/ paths since Homebrew libs can reference either
         echo "Discovering and copying missing transitive dependencies..."
         CHANGES=1
         PASS=0
@@ -443,13 +444,12 @@ jobs:
           echo "  Dependency discovery pass $PASS..."
           for lib in "${STAGE_DIR}/opt/homebrew/lib/"*.dylib; do
             if [ -f "$lib" ] && [ ! -L "$lib" ]; then
-              otool -L "$lib" | grep -oE "${HOMEBREW_PREFIX}/opt/[^ ]+\.dylib" | while read dep; do
+              otool -L "$lib" | grep -oE "(${HOMEBREW_PREFIX}/opt/[^ ]+|${HOMEBREW_PREFIX}/Cellar/[^ ]+)\.dylib" | while read dep; do
                 dep_name=$(basename "$dep")
                 if [ ! -f "${STAGE_DIR}/opt/homebrew/lib/$dep_name" ]; then
                   if [ -f "$dep" ]; then
                     cp "$dep" "${STAGE_DIR}/opt/homebrew/lib/"
                     echo "  ✅ Copied missing dep: $dep_name"
-                    # Flag that we added new libs — need another pass for their deps
                     touch "${STAGE_DIR}/.deps_changed"
                   fi
                 fi
@@ -466,9 +466,9 @@ jobs:
         # Fix library paths for standalone distribution
         echo "Fixing rpath for QEMU binaries and libraries..."
 
-        # Collect all absolute Homebrew lib paths to rewrite
+        # Collect all absolute Homebrew lib paths to rewrite (both opt/ and Cellar/)
         REWRITE_PATHS=""
-        for search_dir in "${HOMEBREW_PREFIX}/opt"/*/lib; do
+        for search_dir in "${HOMEBREW_PREFIX}/opt"/*/lib "${HOMEBREW_PREFIX}/Cellar"/*/*/lib; do
           for lib_file in "$search_dir"/*.dylib; do
             if [ -f "$lib_file" ]; then
               REWRITE_PATHS="$REWRITE_PATHS $lib_file"
@@ -476,26 +476,24 @@ jobs:
           done
         done
 
-        # Add rpath and rewrite absolute paths in QEMU binaries
+        ALL_FILES=""
         for binary in "${STAGE_DIR}/opt/homebrew/bin/"qemu-system-* "${STAGE_DIR}/opt/homebrew/bin/qemu-img"; do
           if [ -f "$binary" ]; then
-            install_name_tool -add_rpath /opt/homebrew/lib "$binary" 2>/dev/null || true
-            for lib_path in $REWRITE_PATHS; do
-              lib_name=$(basename "$lib_path")
-              install_name_tool -change "$lib_path" "@rpath/$lib_name" "$binary" 2>/dev/null || true
-            done
+            ALL_FILES="$ALL_FILES $binary"
+          fi
+        done
+        for lib in "${STAGE_DIR}/opt/homebrew/lib/"*.dylib; do
+          if [ -f "$lib" ] && [ ! -L "$lib" ]; then
+            ALL_FILES="$ALL_FILES $lib"
           fi
         done
 
-        # Add rpath and rewrite absolute paths in bundled libraries
-        for lib in "${STAGE_DIR}/opt/homebrew/lib/"*.dylib; do
-          if [ -f "$lib" ] && [ ! -L "$lib" ]; then
-            install_name_tool -add_rpath /opt/homebrew/lib "$lib" 2>/dev/null || true
-            for dep_path in $REWRITE_PATHS; do
-              dep_name=$(basename "$dep_path")
-              install_name_tool -change "$dep_path" "@rpath/$dep_name" "$lib" 2>/dev/null || true
-            done
-          fi
+        for target in $ALL_FILES; do
+          install_name_tool -add_rpath /opt/homebrew/lib "$target" 2>/dev/null || true
+          for lib_path in $REWRITE_PATHS; do
+            lib_name=$(basename "$lib_path")
+            install_name_tool -change "$lib_path" "@rpath/$lib_name" "$target" 2>/dev/null || true
+          done
         done
         echo "✅ Library paths fixed"
         
@@ -824,12 +822,19 @@ jobs:
         - macOS x86_64 (Intel)
         
         ## Installation Instructions
-        
+
         1. Download the appropriate tarball for your architecture
-        2. Verify the checksum: \`shasum -a 256 -c <tarball>.sha256\`
-        3. Extract with sudo: \`sudo tar --zstd -xf <tarball> -C /\`
+        2. Verify the checksum (example for ARM64):
+           \`shasum -a 256 -c qemu-${QEMU_VERSION}-3dfx-${COMMIT_SHORT}-darwin-arm64.tar.zst.sha256\`
+        3. Extract with sudo:
+        \`\`\`bash
+        # ARM64 (Apple Silicon)
+        sudo tar --zstd -xf qemu-${QEMU_VERSION}-3dfx-${COMMIT_SHORT}-darwin-arm64.tar.zst -C /
+        # x86_64 (Intel)
+        sudo tar --zstd -xf qemu-${QEMU_VERSION}-3dfx-${COMMIT_SHORT}-darwin-x86_64.tar.zst -C /
+        \`\`\`
         4. **If not auto-signed**: Sign the binaries using these commands:
-        
+
         \`\`\`bash
         cd /opt/homebrew/sign
         export QEMU_3DFX_COMMIT=${COMMIT_SHORT}
@@ -878,7 +883,7 @@ jobs:
 
         \`\`\`bash
         # Remove all files and symlinks installed from the tarball
-        tar --zstd -tf <tarball> | grep -v '/$' | sudo xargs -I{} rm -f "/{}"
+        tar --zstd -tf qemu-${QEMU_VERSION}-3dfx-${COMMIT_SHORT}-darwin-$(uname -m).tar.zst | grep -v '/$' | sudo xargs -I{} rm -f "/{}"
 
         # Remove directories created by the package
         sudo rm -rf /opt/homebrew/sign /opt/homebrew/share/qemu-3dfx
