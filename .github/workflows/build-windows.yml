@@ -676,6 +676,17 @@ jobs:
         zip -qry ../bin-windows-ucrt64-${{ env.buildver }}-artifact.zip bin-windows-ucrt64-${{ env.buildver }}-artifact
         zip -qry ../wrappers-artifact.zip wrappers-artifact
 
+    - name: Clean previous nightly release assets
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TAG="nightly-${{ env.buildver }}"
+        # Delete existing release assets to avoid mixing old and new builds
+        gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null | while read -r name; do
+          echo "Removing old asset: $name"
+          gh release delete-asset "$TAG" "$name" --yes 2>/dev/null || true
+        done
+
     - name: Publish rolling release
       uses: softprops/action-gh-release@v3
       with:
