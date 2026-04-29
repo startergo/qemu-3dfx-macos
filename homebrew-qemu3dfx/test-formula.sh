@@ -23,8 +23,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FORMULA_DIR="$SCRIPT_DIR"
 FORMULA_FILE="$FORMULA_DIR/Formula/qemu-3dfx.rb"
 
+# Install directly into Homebrew prefix so binaries are in PATH
+BREW_PREFIX="$(brew --prefix)"
+INSTALL_PREFIX="$BREW_PREFIX"
+
 echo "Formula directory: $FORMULA_DIR"
 echo "Formula file: $FORMULA_FILE"
+echo "Install prefix: $INSTALL_PREFIX"
 echo
 
 if [ ! -f "$FORMULA_FILE" ]; then
@@ -124,7 +129,7 @@ echo "=== Step 3: Building virglrenderer (replicating MINGW-packages/PKGBUILD) =
 
 VIRGL_VERSION="1.3.0"
 VIRGL_BUILD_DIR="/tmp/virglrenderer-build"
-VIRGL_PREFIX="$(brew --prefix)/opt/virglrenderer-3dfx"
+VIRGL_PREFIX="$INSTALL_PREFIX/opt/virglrenderer-3dfx"
 
 echo "Virglrenderer version: $VIRGL_VERSION"
 echo "Build directory: $VIRGL_BUILD_DIR"
@@ -259,12 +264,14 @@ esac
 bash scripts/apply_qemu_patches.sh "${PATCH_ARGS[@]}"
 
 # Re-sign with main repo commit (apply_qemu_patches.sh signs with submodule commit)
-MAIN_COMMIT=$(cat /tmp/qemu_3dfx_commit_override 2>/dev/null)
-if [ -n "$MAIN_COMMIT" ]; then
-    echo "Re-signing with main repo commit: $MAIN_COMMIT"
-    cd "$QEMU_SRC_DIR/qemu-src"
-    bash "$ARCH_SUBMODULE/scripts/sign_commit" -git="$REPO_ROOT" "$MAIN_COMMIT"
+if [ -f /tmp/qemu_3dfx_commit_override ]; then
+    MAIN_COMMIT=$(cat /tmp/qemu_3dfx_commit_override)
+else
+    MAIN_COMMIT=$(cd "$REPO_ROOT" && git rev-parse --short HEAD)
 fi
+echo "Re-signing with main repo commit: $MAIN_COMMIT"
+cd "$QEMU_SRC_DIR/qemu-src"
+bash "$ARCH_SUBMODULE/scripts/sign_commit" -git="$REPO_ROOT" "$MAIN_COMMIT"
 
 echo "All patches applied!"
 
@@ -301,7 +308,7 @@ QEMU_BUILD_DIR="$QEMU_SRC_DIR/build"
 mkdir -p "$QEMU_BUILD_DIR"
 cd "$QEMU_BUILD_DIR"
 
-echo "Configuring QEMU..."
+echo "Configuring QEMU (installing to $INSTALL_PREFIX)..."
 # Adapted from build.yaml configure — macOS equivalents of Windows flags
 ../qemu-src/configure \
     --target-list="x86_64-softmmu,i386-softmmu,aarch64-softmmu" \
@@ -319,7 +326,7 @@ echo "Configuring QEMU..."
     --disable-docs \
     --disable-cocoa \
     -Dsdl_clipboard=enabled \
-    --prefix="$QEMU_SRC_DIR/install_dir"
+    --prefix="$INSTALL_PREFIX"
 
 echo "Compiling QEMU..."
 ninja -j$(sysctl -n hw.ncpu)
@@ -334,7 +341,7 @@ echo
 echo "=== Step 5.5: Building Glide Libraries (OpenGLide) ==="
 
 GLIDE_SRC_DIR="/tmp/openglide-build"
-GLIDE_INSTALL_PREFIX="$QEMU_SRC_DIR/install_dir"
+GLIDE_INSTALL_PREFIX="$INSTALL_PREFIX"
 
 rm -rf "$GLIDE_SRC_DIR"
 mkdir -p "$GLIDE_SRC_DIR"
@@ -354,8 +361,6 @@ chmod +x bootstrap
 # Set up GL headers from Homebrew mesa and mesa-glu
 INCLUDE_DIR="$GLIDE_SRC_DIR/include"
 mkdir -p "$INCLUDE_DIR/GL" "$INCLUDE_DIR/KHR"
-
-BREW_PREFIX="$(brew --prefix)"
 
 # Symlink GL headers from Homebrew mesa
 MESA_GL_INCLUDE="${BREW_PREFIX}/include/GL"
@@ -398,10 +403,33 @@ echo "Verifying Glide libraries:"
 ls -la "$GLIDE_INSTALL_PREFIX/lib/"*glide* 2>/dev/null || echo "  WARNING: No Glide libraries found"
 echo
 
-# ── Step 6: Verification ───────────────────────────────────────────────
-echo "=== Step 6: Verification ==="
+# ── Step 6: Signing ─────────────────────────────────────────────────────
+echo "=== Step 6: Signing Installed Binaries ==="
 
-INSTALL_DIR="$QEMU_SRC_DIR/install_dir"
+SIGN_DIR="$INSTALL_PREFIX/sign"
+mkdir -p "$SIGN_DIR"
+
+# Copy qemu.rsrc and qemu.sign into the sign directory structure
+# qemu.sign expects ../bin/qemu-* and ../lib/*.dylib relative to its location
+cp "$REPO_ROOT/qemu.rsrc" "$SIGN_DIR/qemu.rsrc" 2>/dev/null || echo "  Note: qemu.rsrc not found, skipping icon"
+cp "$REPO_ROOT/qemu.sign" "$SIGN_DIR/qemu.sign"
+
+# Update the commit hash in qemu.sign
+MAIN_COMMIT=$(cd "$REPO_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo "0000000")
+sed -i '' "s/GIT_HASH=\"0000000\"/GIT_HASH=\"${MAIN_COMMIT}\"/" "$SIGN_DIR/qemu.sign"
+
+cd "$SIGN_DIR"
+chmod +x qemu.sign
+echo "Running qemu.sign from $(pwd)..."
+bash qemu.sign
+
+echo "Signing complete"
+echo
+
+# ── Step 7: Verification ───────────────────────────────────────────────
+echo "=== Step 7: Verification ==="
+
+INSTALL_DIR="$INSTALL_PREFIX"
 HOST_ARCH=$(uname -m)
 
 if [ "$HOST_ARCH" = "arm64" ] || [ "$HOST_ARCH" = "aarch64" ]; then
@@ -450,5 +478,19 @@ echo
 echo "=== Build and Test Complete ==="
 echo "Finished at: $(date)"
 echo
-echo "Install directory: $INSTALL_DIR"
+echo "Install directory: $INSTALL_PREFIX"
 echo "Virglrenderer: $VIRGL_PREFIX"
+echo
+echo "Binaries are in PATH. Try:"
+echo "  qemu-system-x86_64 --version"
+echo "  qemu-system-i386 --version"
+echo
+echo "To uninstall:"
+echo "  # Remove QEMU binaries"
+echo "  rm -f $INSTALL_PREFIX/bin/qemu-system-* $INSTALL_PREFIX/bin/qemu-img $INSTALL_PREFIX/bin/qemu-io"
+echo "  # Remove Glide libraries"
+echo "  rm -f $INSTALL_PREFIX/lib/*glide*"
+echo "  # Remove virglrenderer"
+echo "  rm -rf $INSTALL_PREFIX/opt/virglrenderer-3dfx"
+echo "  # Remove signing directory"
+echo "  rm -rf $INSTALL_PREFIX/sign"
