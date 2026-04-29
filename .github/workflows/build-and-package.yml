@@ -463,7 +463,7 @@ jobs:
           NEW_DEPS=""
 
           for file in ${BUNDLED_FILES}; do
-            # Get all dependency paths (absolute Homebrew paths + @loader_path)
+            # Get all dependency paths (absolute Homebrew + @loader_path + @rpath)
             while IFS= read -r dep; do
               dep_name=$(basename "$dep")
               # Already bundled? Skip
@@ -479,13 +479,27 @@ jobs:
                   loader_dir=$(dirname "$file")
                   resolved="${loader_dir}/${dep#@loader_path/}"
                   ;;
+                @rpath/*)
+                  # Resolve @rpath by searching common Homebrew library paths
+                  for search_dir in "${HOMEBREW_PREFIX}/lib" "${HOMEBREW_PREFIX}/opt/mesa/lib" "${HOMEBREW_PREFIX}/opt/mesa-glu/lib"; do
+                    if [ -f "${search_dir}/${dep_name}" ]; then
+                      resolved="${search_dir}/${dep_name}"
+                      break
+                    fi
+                  done
+                  # Fallback: search Cellar for the library
+                  if [ -z "$resolved" ]; then
+                    found=$(find "${HOMEBREW_PREFIX}/Cellar" -name "$dep_name" -print -quit 2>/dev/null)
+                    [ -n "$found" ] && resolved="$found"
+                  fi
+                  ;;
               esac
               if [ -n "$resolved" ] && [ -f "$resolved" ]; then
                 cp "$resolved" "${STAGE_DIR}/opt/homebrew/lib/"
                 echo "  ✅ Copied: $dep_name"
                 NEW_DEPS="$NEW_DEPS ${STAGE_DIR}/opt/homebrew/lib/$dep_name"
               fi
-            done < <(otool -L "$file" 2>/dev/null | awk '{print $1}' | grep -E "^(${HOMEBREW_PREFIX}/|@loader_path/)" | grep -v "/usr/lib/" | grep -v "@rpath/")
+            done < <(otool -L "$file" 2>/dev/null | awk '{print $1}' | grep -E "^(${HOMEBREW_PREFIX}/|@loader_path/|@rpath/)" | grep -v "/usr/lib/")
           done
 
           # Add newly discovered deps to the file list for next pass
