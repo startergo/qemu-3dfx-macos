@@ -432,6 +432,37 @@ jobs:
         echo "Contents of usr/local/lib:"
         ls -la "${STAGE_DIR}/usr/local/lib/"
 
+        # Copy missing transitive dependencies BEFORE rewriting paths
+        # (otool -L shows absolute paths only before we rewrite them to @rpath)
+        echo "Discovering and copying missing transitive dependencies..."
+        CHANGES=1
+        PASS=0
+        while [ "$CHANGES" -ne 0 ] && [ "$PASS" -lt 5 ]; do
+          CHANGES=0
+          PASS=$((PASS + 1))
+          echo "  Dependency discovery pass $PASS..."
+          for lib in "${STAGE_DIR}/opt/homebrew/lib/"*.dylib; do
+            if [ -f "$lib" ] && [ ! -L "$lib" ]; then
+              otool -L "$lib" | grep -oE "${HOMEBREW_PREFIX}/opt/[^ ]+\.dylib" | while read dep; do
+                dep_name=$(basename "$dep")
+                if [ ! -f "${STAGE_DIR}/opt/homebrew/lib/$dep_name" ]; then
+                  if [ -f "$dep" ]; then
+                    cp "$dep" "${STAGE_DIR}/opt/homebrew/lib/"
+                    echo "  ✅ Copied missing dep: $dep_name"
+                    # Flag that we added new libs — need another pass for their deps
+                    touch "${STAGE_DIR}/.deps_changed"
+                  fi
+                fi
+              done
+            fi
+          done
+          if [ -f "${STAGE_DIR}/.deps_changed" ]; then
+            CHANGES=1
+            rm -f "${STAGE_DIR}/.deps_changed"
+          fi
+        done
+        echo "✅ Transitive dependencies resolved"
+
         # Fix library paths for standalone distribution
         echo "Fixing rpath for QEMU binaries and libraries..."
 
@@ -467,22 +498,6 @@ jobs:
           fi
         done
         echo "✅ Library paths fixed"
-
-        # Copy any missing transitive dependencies discovered from bundled libraries
-        echo "Checking for missing transitive dependencies..."
-        for lib in "${STAGE_DIR}/opt/homebrew/lib/"*.dylib; do
-          if [ -f "$lib" ] && [ ! -L "$lib" ]; then
-            otool -L "$lib" | grep -oE "${HOMEBREW_PREFIX}/opt/[^ ]+\.dylib" | while read dep; do
-              dep_name=$(basename "$dep")
-              if [ ! -f "${STAGE_DIR}/opt/homebrew/lib/$dep_name" ]; then
-                if [ -f "$dep" ]; then
-                  cp "$dep" "${STAGE_DIR}/opt/homebrew/lib/"
-                  echo "✅ Copied missing transitive dep: $dep_name"
-                fi
-              fi
-            done
-          fi
-        done
         
         # Create build info file in proper location (not root)
         echo "Creating build information..."
