@@ -389,10 +389,10 @@ jobs:
           sed -i '' "s/qemu-3dfx@[a-f0-9]*/qemu-3dfx@${COMMIT_SHORT}/g" "${STAGE_DIR}/opt/homebrew/sign/qemu.sign"
           
           # Embed the actual commit ID into the script so it doesn't need git or env vars
-          sed -i '' "s/GIT_HASH=\"2ed207b\"/GIT_HASH=\"${COMMIT_SHORT}\"/" "${STAGE_DIR}/opt/homebrew/sign/qemu.sign"
-          
+          sed -i '' "s/GIT_HASH=\"0000000\"/GIT_HASH=\"${COMMIT_SHORT}\"/" "${STAGE_DIR}/opt/homebrew/sign/qemu.sign"
+
           # Also update any other fallback commit references
-          sed -i '' "s/\"2ed207b\"/\"${COMMIT_SHORT}\"/g" "${STAGE_DIR}/opt/homebrew/sign/qemu.sign"
+          sed -i '' "s/\"0000000\"/\"${COMMIT_SHORT}\"/g" "${STAGE_DIR}/opt/homebrew/sign/qemu.sign"
           
           echo "✅ Updated qemu.sign script with commit ID: ${COMMIT_SHORT}"
         fi
@@ -772,7 +772,7 @@ jobs:
         4. **If not auto-signed**: Sign the binaries using these commands:
         
         \`\`\`bash
-        cd \$(brew --prefix qemu-3dfx)/sign
+        cd /opt/homebrew/sign
         export QEMU_3DFX_COMMIT=${COMMIT_SHORT}
         sudo /usr/bin/xattr -c ../bin/qemu-system-* ../bin/qemu-* ../lib/*.dylib
         sudo -E bash ./qemu.sign
