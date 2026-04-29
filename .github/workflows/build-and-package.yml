@@ -432,68 +432,81 @@ jobs:
         echo "Contents of usr/local/lib:"
         ls -la "${STAGE_DIR}/usr/local/lib/"
 
-        # Copy missing transitive dependencies BEFORE rewriting paths
-        # (otool -L shows absolute paths only before we rewrite them to @rpath)
-        # Matches both opt/ and Cellar/ paths since Homebrew libs can reference either
-        echo "Discovering and copying missing transitive dependencies..."
-        CHANGES=1
-        PASS=0
-        while [ "$CHANGES" -ne 0 ] && [ "$PASS" -lt 5 ]; do
-          CHANGES=0
-          PASS=$((PASS + 1))
-          echo "  Dependency discovery pass $PASS..."
-          for lib in "${STAGE_DIR}/opt/homebrew/lib/"*.dylib; do
-            if [ -f "$lib" ] && [ ! -L "$lib" ]; then
-              otool -L "$lib" | grep -oE "(${HOMEBREW_PREFIX}/opt/[^ ]+|${HOMEBREW_PREFIX}/Cellar/[^ ]+)\.dylib" | while read dep; do
-                dep_name=$(basename "$dep")
-                if [ ! -f "${STAGE_DIR}/opt/homebrew/lib/$dep_name" ]; then
-                  if [ -f "$dep" ]; then
-                    cp "$dep" "${STAGE_DIR}/opt/homebrew/lib/"
-                    echo "  ✅ Copied missing dep: $dep_name"
-                    touch "${STAGE_DIR}/.deps_changed"
-                  fi
-                fi
-              done
-            fi
-          done
-          if [ -f "${STAGE_DIR}/.deps_changed" ]; then
-            CHANGES=1
-            rm -f "${STAGE_DIR}/.deps_changed"
-          fi
-        done
-        echo "✅ Transitive dependencies resolved"
+        # Resolve transitive dependencies and rewrite library paths
+        # Strategy: scan otool -L output to find actual deps, copy missing ones,
+        # then rewrite only the paths that actually appear (not all Homebrew libs)
+        echo "Resolving transitive dependencies and fixing library paths..."
 
-        # Fix library paths for standalone distribution
-        echo "Fixing rpath for QEMU binaries and libraries..."
-
-        # Collect all absolute Homebrew lib paths to rewrite (both opt/ and Cellar/)
-        REWRITE_PATHS=""
-        for search_dir in "${HOMEBREW_PREFIX}/opt"/*/lib "${HOMEBREW_PREFIX}/Cellar"/*/*/lib; do
-          for lib_file in "$search_dir"/*.dylib; do
-            if [ -f "$lib_file" ]; then
-              REWRITE_PATHS="$REWRITE_PATHS $lib_file"
-            fi
-          done
-        done
-
-        ALL_FILES=""
+        # Collect all bundled files (binaries + libraries)
+        BUNDLED_FILES=""
         for binary in "${STAGE_DIR}/opt/homebrew/bin/"qemu-system-* "${STAGE_DIR}/opt/homebrew/bin/qemu-img"; do
           if [ -f "$binary" ]; then
-            ALL_FILES="$ALL_FILES $binary"
+            BUNDLED_FILES="$BUNDLED_FILES $binary"
           fi
         done
         for lib in "${STAGE_DIR}/opt/homebrew/lib/"*.dylib; do
           if [ -f "$lib" ] && [ ! -L "$lib" ]; then
-            ALL_FILES="$ALL_FILES $lib"
+            BUNDLED_FILES="$BUNDLED_FILES $lib"
           fi
         done
 
-        for target in $ALL_FILES; do
-          install_name_tool -add_rpath /opt/homebrew/lib "$target" 2>/dev/null || true
-          for lib_path in $REWRITE_PATHS; do
-            lib_name=$(basename "$lib_path")
-            install_name_tool -change "$lib_path" "@rpath/$lib_name" "$target" 2>/dev/null || true
+        # Multi-pass: discover missing deps, copy them, repeat for their deps
+        PASS=0
+        while [ "$PASS" -lt 5 ]; do
+          PASS=$((PASS + 1))
+          echo "  Dependency pass $PASS..."
+          NEW_DEPS=""
+
+          for file in ${BUNDLED_FILES}; do
+            # Get all dependency paths (absolute Homebrew paths + @loader_path)
+            while IFS= read -r dep; do
+              dep_name=$(basename "$dep")
+              # Already bundled? Skip
+              [ -f "${STAGE_DIR}/opt/homebrew/lib/$dep_name" ] && continue
+              # Resolve the actual file path
+              resolved=""
+              case "$dep" in
+                "${HOMEBREW_PREFIX}/"*)
+                  resolved="$dep"
+                  ;;
+                @loader_path/*)
+                  # Resolve @loader_path relative to the file's location
+                  loader_dir=$(dirname "$file")
+                  resolved="${loader_dir}/${dep#@loader_path/}"
+                  ;;
+              esac
+              if [ -n "$resolved" ] && [ -f "$resolved" ]; then
+                cp "$resolved" "${STAGE_DIR}/opt/homebrew/lib/"
+                echo "  ✅ Copied: $dep_name"
+                NEW_DEPS="$NEW_DEPS ${STAGE_DIR}/opt/homebrew/lib/$dep_name"
+              fi
+            done < <(otool -L "$file" 2>/dev/null | awk '{print $1}' | grep -E "^(${HOMEBREW_PREFIX}/|@loader_path/)" | grep -v "/usr/lib/" | grep -v "@rpath/")
           done
+
+          # Add newly discovered deps to the file list for next pass
+          if [ -z "$NEW_DEPS" ]; then
+            break
+          fi
+          BUNDLED_FILES="$BUNDLED_FILES $NEW_DEPS"
+        done
+        echo "✅ All transitive dependencies resolved"
+
+        # Rewrite absolute paths to @rpath in all bundled files
+        echo "Rewriting library paths to @rpath..."
+        for file in ${BUNDLED_FILES}; do
+          install_name_tool -add_rpath /opt/homebrew/lib "$file" 2>/dev/null || true
+          # Extract actual deps from this file and rewrite only those
+          while IFS= read -r dep; do
+            dep_name=$(basename "$dep")
+            case "$dep" in
+              "${HOMEBREW_PREFIX}/"*)
+                install_name_tool -change "$dep" "@rpath/$dep_name" "$file" 2>/dev/null || true
+                ;;
+              @loader_path/*)
+                install_name_tool -change "$dep" "@rpath/$dep_name" "$file" 2>/dev/null || true
+                ;;
+            esac
+          done < <(otool -L "$file" 2>/dev/null | awk '{print $1}' | grep -E "^(${HOMEBREW_PREFIX}/|@loader_path/)" | grep -v "@rpath/")
         done
         echo "✅ Library paths fixed"
         
