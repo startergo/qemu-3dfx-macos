@@ -36,11 +36,22 @@ for i in $OPTIONAL_DEPS; do
 done
 
 echo "=== Generating dynamic identity ==="
-# Try environment variable first (for CI/CD)
+# Priority: env var > embedded hash > git repo detection > placeholder
+#
+# CI patches the line below: sed 's/GIT_HASH="0000000"/GIT_HASH="<commit>"/'
+# Do NOT remove or rename this line — it is the injection point.
+GIT_HASH="0000000"
+
+# Read back the (possibly patched) embedded hash
+EMBEDDED_HASH="$GIT_HASH"
+unset GIT_HASH
+
 if [ -n "$QEMU_3DFX_COMMIT" ]; then
     GIT_HASH="$QEMU_3DFX_COMMIT"
     echo "Using commit hash from environment: $GIT_HASH"
-# Try to get git commit hash from current directory or parent directories
+elif [ -n "$EMBEDDED_HASH" ] && [ "$EMBEDDED_HASH" != "0000000" ]; then
+    GIT_HASH="$EMBEDDED_HASH"
+    echo "Using embedded commit hash: $GIT_HASH"
 else
     GIT_HASH=""
     for dir in . .. ../.. ../../..; do
@@ -55,10 +66,9 @@ else
     done
 fi
 
-# Fallback to static hash if git not available
 if [ -z "$GIT_HASH" ]; then
     GIT_HASH="0000000"
-    echo "Warning: Git repository not found, using fallback hash: $GIT_HASH"
+    echo "Warning: No commit found, using placeholder: $GIT_HASH"
 fi
 
 IDEN="qemu-3dfx@${GIT_HASH}"
