@@ -434,31 +434,55 @@ jobs:
 
         # Fix library paths for standalone distribution
         echo "Fixing rpath for QEMU binaries and libraries..."
+
+        # Collect all absolute Homebrew lib paths to rewrite
+        REWRITE_PATHS=""
+        for search_dir in "${HOMEBREW_PREFIX}/opt"/*/lib; do
+          for lib_file in "$search_dir"/*.dylib; do
+            if [ -f "$lib_file" ]; then
+              REWRITE_PATHS="$REWRITE_PATHS $lib_file"
+            fi
+          done
+        done
+
+        # Add rpath and rewrite absolute paths in QEMU binaries
         for binary in "${STAGE_DIR}/opt/homebrew/bin/"qemu-system-* "${STAGE_DIR}/opt/homebrew/bin/qemu-img"; do
           if [ -f "$binary" ]; then
             install_name_tool -add_rpath /opt/homebrew/lib "$binary" 2>/dev/null || true
-            # Rewrite absolute Homebrew lib paths to @rpath so binaries find bundled libs
-            for lib_path in \
-              "${HOMEBREW_PREFIX}/opt/mesa/lib/libGL.1.dylib" \
-              "${HOMEBREW_PREFIX}/opt/angle/lib/libEGL.dylib" \
-              "${HOMEBREW_PREFIX}/opt/angle/lib/libGLESv2.dylib" \
-              "${HOMEBREW_PREFIX}/opt/libepoxy/lib/libepoxy.0.dylib" \
-              "${HOMEBREW_PREFIX}/opt/sdl2/lib/libSDL2-2.0.0.dylib" \
-              "${HOMEBREW_PREFIX}/opt/virglrenderer-3dfx/lib/libvirglrenderer.1.dylib" \
-              "${HOMEBREW_PREFIX}/opt/spice-server/lib/libspice-server.1.dylib"; do
+            for lib_path in $REWRITE_PATHS; do
               lib_name=$(basename "$lib_path")
               install_name_tool -change "$lib_path" "@rpath/$lib_name" "$binary" 2>/dev/null || true
             done
           fi
         done
-        # Libraries also need rpath to find their own dependencies
-        # (e.g. libepoxy dlopen's @rpath/libEGL.dylib from ANGLE)
+
+        # Add rpath and rewrite absolute paths in bundled libraries
         for lib in "${STAGE_DIR}/opt/homebrew/lib/"*.dylib; do
           if [ -f "$lib" ] && [ ! -L "$lib" ]; then
             install_name_tool -add_rpath /opt/homebrew/lib "$lib" 2>/dev/null || true
+            for dep_path in $REWRITE_PATHS; do
+              dep_name=$(basename "$dep_path")
+              install_name_tool -change "$dep_path" "@rpath/$dep_name" "$lib" 2>/dev/null || true
+            done
           fi
         done
         echo "✅ Library paths fixed"
+
+        # Copy any missing transitive dependencies discovered from bundled libraries
+        echo "Checking for missing transitive dependencies..."
+        for lib in "${STAGE_DIR}/opt/homebrew/lib/"*.dylib; do
+          if [ -f "$lib" ] && [ ! -L "$lib" ]; then
+            otool -L "$lib" | grep -oE "${HOMEBREW_PREFIX}/opt/[^ ]+\.dylib" | while read dep; do
+              dep_name=$(basename "$dep")
+              if [ ! -f "${STAGE_DIR}/opt/homebrew/lib/$dep_name" ]; then
+                if [ -f "$dep" ]; then
+                  cp "$dep" "${STAGE_DIR}/opt/homebrew/lib/"
+                  echo "✅ Copied missing transitive dep: $dep_name"
+                fi
+              fi
+            done
+          fi
+        done
         
         # Create build info file in proper location (not root)
         echo "Creating build information..."
