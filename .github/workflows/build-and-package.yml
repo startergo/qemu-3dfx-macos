@@ -182,7 +182,7 @@ jobs:
     - name: Quick verification
       if: steps.should_run.outputs.should_run == 'true'
       run: |
-        QEMU_BIN_DIR="/tmp/qemu-11.0.0-3dfx/install_dir/bin"
+        QEMU_BIN_DIR="$(brew --prefix)/bin"
         export PATH="$QEMU_BIN_DIR:$PATH"
 
         # Simple verification - test-formula.sh already handles comprehensive testing
@@ -201,7 +201,7 @@ jobs:
     - name: Test 3dfx Mesa GL pass-through
       if: steps.should_run.outputs.should_run == 'true'
       run: |
-        QEMU_BIN_DIR="/tmp/qemu-11.0.0-3dfx/install_dir/bin"
+        QEMU_BIN_DIR="$(brew --prefix)/bin"
         export PATH="$QEMU_BIN_DIR:$PATH"
 
         echo "=== Testing build features ==="
@@ -214,7 +214,7 @@ jobs:
         fi
 
         echo "Checking for host-side Glide libraries..."
-        ls -la "/tmp/qemu-11.0.0-3dfx/install_dir/lib/"*glide* 2>/dev/null || echo "⚠️ No Glide libraries found"
+        ls -la "$(brew --prefix)/lib/"*glide* 2>/dev/null || echo "⚠️ No Glide libraries found"
 
         echo "Testing Virgl3D device with qemu-system-x86_64..."
         qemu-system-x86_64 -device help | grep -i "virtio-vga-gl\|virgl" || echo "ℹ️ Virgl3D support not detected"
@@ -235,14 +235,19 @@ jobs:
       if: steps.should_run.outputs.should_run == 'true'
       run: |
         HOMEBREW_PREFIX=$(brew --prefix)
-        
+
         echo "=== Packaging QEMU 3dfx Homebrew installation ==="
-        
-        # Copy binaries
-        echo "Copying QEMU binaries..."
-        INSTALL_DIR="/tmp/qemu-11.0.0-3dfx/install_dir"
+
+        # Copy binaries (test-formula.sh installs to Homebrew prefix)
+        INSTALL_DIR="${HOMEBREW_PREFIX}"
         cp "${INSTALL_DIR}/bin/qemu-system-"* "${STAGE_DIR}/opt/homebrew/bin/" 2>/dev/null || true
         cp "${INSTALL_DIR}/bin/qemu-img" "${STAGE_DIR}/opt/homebrew/bin/" 2>/dev/null || true
+        cp "${INSTALL_DIR}/bin/qemu-io" "${STAGE_DIR}/opt/homebrew/bin/" 2>/dev/null || true
+        cp "${INSTALL_DIR}/bin/qemu-nbd" "${STAGE_DIR}/opt/homebrew/bin/" 2>/dev/null || true
+        cp "${INSTALL_DIR}/bin/qemu-edid" "${STAGE_DIR}/opt/homebrew/bin/" 2>/dev/null || true
+        cp "${INSTALL_DIR}/bin/qemu-ga" "${STAGE_DIR}/opt/homebrew/bin/" 2>/dev/null || true
+        cp "${INSTALL_DIR}/bin/qemu-pr-helper" "${STAGE_DIR}/opt/homebrew/bin/" 2>/dev/null || true
+        cp "${INSTALL_DIR}/bin/qemu-storage-daemon" "${STAGE_DIR}/opt/homebrew/bin/" 2>/dev/null || true
         
         # Copy libraries with proper symlinks
         echo "Copying and creating library symlinks..."
