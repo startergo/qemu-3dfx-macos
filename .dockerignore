@@ -1,0 +1,25 @@
+# Build artifacts
+output/
+staging/
+config-temp/
+
+# macOS
+.DS_Store
+
+# Git
+.git/
+.claude/
+
+# CI artifacts
+*.tar.zst
+*.sha256
+*.zip
+
+# Homebrew formula (not needed for wrappers)
+homebrew-qemu3dfx/
+
+# Windows build artifacts (not needed)
+*.exe
+
+# Temporary build files
+/tmp/
