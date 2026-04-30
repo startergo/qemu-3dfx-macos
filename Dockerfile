@@ -62,17 +62,18 @@ RUN cd /build/qemu-3dfx-arch && \
     git commit -m "build" --quiet
 
 # Build 3dfx wrappers (Glide: DLL, VXD, DXE, OVL)
-# OVL and DXE may fail on some toolchain versions — tolerate errors
+# Pass COMMIT_ID as GIT override so DLLs embed the main repo commit
 RUN cd qemu-3dfx-arch/wrappers/3dfx && \
     mkdir -p build && cd build && \
     bash ../../../scripts/conf_wrapper && \
-    { make || true; } && make clean
+    { make GIT=${COMMIT_ID}- || true; } && make clean
 
 # Build Mesa wrappers (OpenGL: DLL, EXE)
+# SOFTGPU overrides the embedded revision in opengl32.dll
 RUN cd qemu-3dfx-arch/wrappers/mesa && \
     mkdir -p build && cd build && \
     bash ../../../scripts/conf_wrapper && \
-    { make all+ || true; } && make clean
+    { make all+ SOFTGPU=${COMMIT_ID} || true; } && make clean
 
 # Build OpenGlide extras (Linux platform needs GL/X11 — may fail, tolerate)
 RUN cd qemu-3dfx-arch/wrappers/extra/openglide && \
