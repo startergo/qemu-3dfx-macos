@@ -63,8 +63,7 @@ sudo -E bash ./qemu.sign
 Update the signing identity to the current commit:
 
 ```bash
-cd $(brew --prefix)/sign
-QEMU_3DFX_COMMIT=$(git rev-parse --short HEAD) bash qemu.sign
+COMMIT=$(git rev-parse --short HEAD) && cd $(brew --prefix)/sign && QEMU_3DFX_COMMIT=$COMMIT bash qemu.sign
 ```
 
 Clean up when done: `rm -rf $(brew --prefix)/sign`
