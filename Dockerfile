@@ -1,39 +1,27 @@
-FROM archlinux:latest
+FROM ubuntu:latest
 
 ARG COMMIT_ID=0000000
+ARG DEBIAN_FRONTEND=noninteractive
 
-RUN sed -i 's/^#DisableSandboxSyscalls/DisableSandboxSyscalls/' /etc/pacman.conf && \
-    pacman -Syu --noconfirm && \
-    pacman -S --noconfirm --needed \
-        base-devel \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
         git \
         dos2unix \
         xorriso \
         wget \
+        ca-certificates \
         unzip \
-        vim \
-        mingw-w64-gcc \
-        mingw-w64-binutils \
-        mesa \
-        freeglut \
+        vim-tiny \
+        mingw-w64 \
+        mingw-w64-tools \
+        xxd \
+        mesa-common-dev \
+        freeglut3-dev \
         perl \
-    && pacman -Sc --noconfirm
-
-# Find where gendef is installed and symlink it
-RUN find / -name '*gendef*' -type f 2>/dev/null; \
-    GENDUP=$(find / -name '*gendef*' -type f 2>/dev/null | head -1); \
-    if [ -n "$GENDUP" ]; then \
-        ln -sf "$GENDUP" /usr/local/bin/gendef && echo "Linked: $GENDUP -> /usr/local/bin/gendef"; \
-    else \
-        echo "gendef not found, installing from AUR..." && \
-        pacman -S --noconfirm --needed autoconf automake bison flex && \
-        cd /tmp && \
-        git clone --depth 1 https://github.com/mirror/mingw-w64.git && \
-        cd mingw-w64/mingw-w64-tools/gendef && \
-        ./configure --prefix=/usr/local && make && make install && \
-        cd /tmp && rm -rf mingw-w64; \
-    fi; \
-    which gendef
+        autoconf \
+        automake \
+        libtool \
+    && rm -rf /var/lib/apt/lists/*
 
 # shasum is a Perl utility not always in PATH — provide a wrapper
 RUN printf '#!/bin/sh\nexec sha256sum "$@"\n' > /usr/local/bin/shasum && \
@@ -78,20 +66,20 @@ RUN cd /build/qemu-3dfx-arch && \
 RUN cd qemu-3dfx-arch/wrappers/3dfx && \
     mkdir -p build && cd build && \
     bash ../../../scripts/conf_wrapper && \
-    make || true && make clean
+    { make || true; } && make clean
 
 # Build Mesa wrappers (OpenGL: DLL, EXE)
 RUN cd qemu-3dfx-arch/wrappers/mesa && \
     mkdir -p build && cd build && \
     bash ../../../scripts/conf_wrapper && \
-    make all+ || true && make clean
+    { make all+ || true; } && make clean
 
 # Build OpenGlide extras (Linux platform needs GL/X11 — may fail, tolerate)
 RUN cd qemu-3dfx-arch/wrappers/extra/openglide && \
     dos2unix configure.ac Makefile.am && \
     bash ./bootstrap && \
     mkdir -p ../build && cd ../build && \
-    ../openglide/configure --disable-sdl && make
+    ../openglide/configure --disable-sdl && make || true
 
 # Build g2xwrap (expects MSYSTEM=MINGW32 and uses mingw g++)
 # Makefile hardcodes g++ and expects libglide2x.dll from OpenGlide build;
@@ -126,14 +114,7 @@ RUN cd qemu-3dfx-arch/wrappers/iso && \
     xorriso -as mkisofs -JR -V "VMWRAPPER-${COMMIT_ID}" -o wrappers.iso iso
 
 # Override commit.txt with main repo commit ID (not submodule)
-RUN cd /build/qemu-3dfx-arch/wrappers/iso && \
-    cat > commit.txt <<EOF
-QEMU-3dfx-arch VMAddons ISO
-=================================================
-Commit ${COMMIT_ID}
-
-refer to readme.txt for more information
-EOF
+RUN printf 'QEMU-3dfx-arch VMAddons ISO\r\n=================================================\r\nCommit %s\r\n\r\nrefer to readme.txt for more information\r\n' "$COMMIT_ID" > /build/qemu-3dfx-arch/wrappers/iso/commit.txt
 
 # Rebuild ISO with correct commit
 RUN cd /build/qemu-3dfx-arch/wrappers && \
