@@ -58,16 +58,6 @@ sudo /usr/bin/xattr -c ../bin/qemu-system-* ../bin/qemu-* ../lib/*.dylib
 sudo -E bash ./qemu.sign
 ```
 
-## Re-sign
-
-Update the signing identity to the current commit:
-
-```bash
-COMMIT=$(git rev-parse --short HEAD) && cd $(brew --prefix)/sign && QEMU_3DFX_COMMIT=$COMMIT bash qemu.sign
-```
-
-Clean up when done: `rm -rf $(brew --prefix)/sign`
-
 ## Uninstall
 
 ```bash

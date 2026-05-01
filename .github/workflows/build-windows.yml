@@ -607,6 +607,8 @@ jobs:
         cd qemu-3dfx-arch/wrappers/3dfx
         mkdir build && cd build
         bash ../../../scripts/conf_wrapper
+        # Patch OVL Makefile to use main repo commit (it shells out to git directly)
+        sed -i 's/git rev-parse --short HEAD/echo ${{ env.COMMIT_SHORT }}/' ../ovl/Makefile
         make GIT=${{ env.COMMIT_SHORT }}- && make clean
         echo "Compiling Mesa wrappers"
         cd ../../mesa

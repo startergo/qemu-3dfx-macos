@@ -69,18 +69,27 @@ echo "Installing build tools and dependencies..."
 # Install ANGLE (provides libEGL.dylib, libGLESv2.dylib for macOS via Metal)
 brew tap startergo/gn
 brew tap startergo/angle
-brew install startergo/angle/angle
+brew install startergo/angle/angle || true
+brew link --overwrite angle 2>/dev/null || true
 
 # Install patched libepoxy with EGL 1.5 support on macOS
 brew tap startergo/libepoxy
-brew install startergo/libepoxy/libepoxy
+brew install startergo/libepoxy/libepoxy || true
+brew link --overwrite libepoxy 2>/dev/null || true
 
 brew install git wget meson ninja pkg-config \
     capstone glib gettext gnutls libgcrypt libslirp libusb jpeg-turbo \
     lz4 opus sdl2 zstd swtpm libffi ncurses pixman sdl2_image \
     spice-protocol spice-server libx11 libxext libxfixes libxrandr \
     libxinerama libxi libxcursor libxxf86vm \
-    autoconf automake libtool cmake
+    autoconf automake libtool cmake || true
+
+# Force-link packages that QEMU configure needs via pkg-config
+for pkg in glib pixman spice-server libx11 libxext libxfixes libxrandr \
+    libxinerama libxi libxcursor libxxf86vm libxcb xorgproto gettext \
+    capstone libslirp libusb sdl2 sdl2_image libxau libxdmcp; do
+    brew link --overwrite "$pkg" 2>/dev/null || true
+done
 
 # Install mesa first and force-link (conflicts with angle EGL and xorgproto GL headers)
 brew install mesa || true
@@ -297,6 +306,13 @@ export LDFLAGS="${LDFLAGS//-flto=auto/}"
 
 # Ensure Homebrew lib path for X11/GL/Xxf86vm (needed when XQuartz is absent)
 export LDFLAGS="$LDFLAGS -L/opt/homebrew/lib -L/opt/homebrew/opt/mesa/lib"
+
+# Add all Homebrew pkg-config paths (covers X11 dependency chains: xau, xcb, xdmcp, etc.)
+OPT_PC_PATHS=""
+for pcdir in /opt/homebrew/opt/*/lib/pkgconfig; do
+    [ -d "$pcdir" ] && OPT_PC_PATHS="$OPT_PC_PATHS:$pcdir"
+done
+export PKG_CONFIG_PATH="$VIRGL_PREFIX/lib/pkgconfig:/opt/homebrew/lib/pkgconfig${OPT_PC_PATHS}"
 
 # Apple framework linker flags for SDL2
 APPLE_FRAMEWORKS="-framework AudioToolbox -framework CoreAudio -framework CoreGraphics -framework CoreFoundation -framework AppKit -framework IOKit -framework ForceFeedback -framework GameController -framework Carbon -framework Cocoa -framework CoreHaptics -framework CoreVideo -framework Metal -framework MetalKit -framework OpenGL"

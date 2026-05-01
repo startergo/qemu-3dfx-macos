@@ -63,7 +63,9 @@ RUN cd /build/qemu-3dfx-arch && \
 
 # Build 3dfx wrappers (Glide: DLL, VXD, DXE, OVL)
 # Pass COMMIT_ID as GIT override so DLLs embed the main repo commit
+# Patch OVL Makefile to use main repo commit (it shells out to git directly)
 RUN cd qemu-3dfx-arch/wrappers/3dfx && \
+    sed -i 's/git rev-parse --short HEAD/echo ${COMMIT_ID}/' ovl/Makefile && \
     mkdir -p build && cd build && \
     bash ../../../scripts/conf_wrapper && \
     { make GIT=${COMMIT_ID}- || true; } && make clean
