@@ -292,6 +292,16 @@ cd "$QEMU_SRC_DIR/qemu-src"
 # mglcntx_linux.c uses GLX/X11 which crashes on macOS without XQuartz running
 sed -i '' "s/'mglcntx_linux.c'/'mglcntx_sdlgl.c'/" hw/mesa/meson.build
 
+# macOS OpenGL headers via SDL_opengl.h don't define NV_texture_rectangle constants
+sed -i '' '/#include "SDL2\/SDL_opengl.h"/a\
+#ifndef GL_TEXTURE_RECTANGLE_NV\
+#define GL_TEXTURE_RECTANGLE_NV 0x84F5\
+#endif\
+#ifndef GL_TEXTURE_BINDING_RECTANGLE_NV\
+#define GL_TEXTURE_BINDING_RECTANGLE_NV 0x84F6\
+#endif
+' hw/mesa/mglcntx_sdlgl.c
+
 # ANGLE defines EGLNativeDisplayType as int on macOS, but eglGetPlatformDisplayEXT expects void*
 sed -i '' 's/eglGetPlatformDisplayEXT(platform, native, NULL)/eglGetPlatformDisplayEXT(platform, (void *)(intptr_t)native, NULL)/' ui/egl-helpers.c
 
