@@ -287,8 +287,10 @@ echo "All patches applied!"
 # macOS fixes after patching
 cd "$QEMU_SRC_DIR/qemu-src"
 
-# Fix macOS OpenGL context attribute name
-sed -i '' 's/GL_CONTEXTALPHA/GLX_ALPHA_SIZE/' hw/mesa/mglcntx_linux.c 2>/dev/null || true
+# Use SDL2/OpenGL backend instead of GLX/X11 for Mesa GL passthrough
+# mglcntx_sdlgl.c uses native macOS OpenGL via SDL2 (no XQuartz dependency)
+# mglcntx_linux.c uses GLX/X11 which crashes on macOS without XQuartz running
+sed -i '' "s/'mglcntx_linux.c'/'mglcntx_sdlgl.c'/" hw/mesa/meson.build
 
 # ANGLE defines EGLNativeDisplayType as int on macOS, but eglGetPlatformDisplayEXT expects void*
 sed -i '' 's/eglGetPlatformDisplayEXT(platform, native, NULL)/eglGetPlatformDisplayEXT(platform, (void *)(intptr_t)native, NULL)/' ui/egl-helpers.c

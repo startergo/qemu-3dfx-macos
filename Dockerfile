@@ -72,9 +72,12 @@ RUN cd qemu-3dfx-arch/wrappers/3dfx && \
 
 # Build Mesa wrappers (OpenGL: DLL, EXE)
 # SOFTGPU overrides the embedded revision in opengl32.dll
+# Remove SOFTGPU CFLAGS filter to keep -march=x86-64-v2 optimizations;
+# users must pass -cpu max to QEMU TCG for x86-64-v2 instruction support
 RUN cd qemu-3dfx-arch/wrappers/mesa && \
     mkdir -p build && cd build && \
     bash ../../../scripts/conf_wrapper && \
+    sed -i '/CFLAGS.*filter-out/d' Makefile && \
     { make all+ SOFTGPU=${COMMIT_ID} || true; } && make clean
 
 # Build OpenGlide extras (Linux platform needs GL/X11 — may fail, tolerate)

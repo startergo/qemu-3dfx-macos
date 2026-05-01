@@ -614,6 +614,8 @@ jobs:
         cd ../../mesa
         mkdir build && cd build
         bash ../../../scripts/conf_wrapper
+        # Remove SOFTGPU CFLAGS filter to keep -march=x86-64-v2 optimizations
+        sed -i '/CFLAGS.*filter-out/d' Makefile
         make all+ SOFTGPU=${{ env.COMMIT_SHORT }} && make clean
         echo "Compiling Guest Openglide"
         cd ../../extra/openglide/

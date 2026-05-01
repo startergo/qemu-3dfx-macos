@@ -84,10 +84,21 @@ rm -rf "$BREW_PREFIX"/sign
 
 ## Usage
 
+### CPU Invocation
+
+Guest wrappers (since commit 5112b64) are optimized for x86-64-v2 SIMD instruction sets (SSE4.2, AVX). When using QEMU TCG (software emulation), pass `-cpu max` to enable the full x86-64-v2 architecture level:
+
+```bash
+qemu-system-i386 -cpu max ...
+qemu-system-x86_64 -cpu max ...
+```
+
+Intel/AMD hosts with KVM/WHPX acceleration already support x86-64-v2 natively.
+
 ### 3dfx (32-bit DOS/Windows guests)
 
 ```bash
-qemu-system-i386 -machine pc-i440fx-2.1 -cpu pentium2 -m 128 -hda game.img
+qemu-system-i386 -machine pc-i440fx-2.1 -cpu max -m 128 -hda game.img
 ```
 
 Requires guest-side Glide wrapper DLLs (glide2x.dll, glide3x.dll, fxmemmap.vxd).
@@ -95,7 +106,7 @@ Requires guest-side Glide wrapper DLLs (glide2x.dll, glide3x.dll, fxmemmap.vxd).
 ### Virgl3D (64-bit guests)
 
 ```bash
-qemu-system-x86_64 -device virtio-vga-gl -display sdl,gl=on -hda os.img
+qemu-system-x86_64 -cpu max -device virtio-vga-gl -display sdl,gl=on -hda os.img
 ```
 
 ## Building Guest Wrappers (Docker)
