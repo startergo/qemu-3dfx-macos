@@ -663,6 +663,19 @@ jobs:
       buildver: 'qemu-11.0.0'
 
     steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up commit ID
+      run: |
+        if [ -n "${{ github.event.inputs.commit_id }}" ]; then
+          COMMIT_SHORT="${{ github.event.inputs.commit_id }}"
+        else
+          COMMIT_SHORT=$(git rev-parse --short HEAD)
+        fi
+        echo "COMMIT_SHORT=${COMMIT_SHORT}" >> $GITHUB_ENV
+        echo "Main repo commit: ${COMMIT_SHORT}"
+
     - name: Download build artifacts
       uses: actions/download-artifact@v4
       with:
@@ -675,6 +688,18 @@ jobs:
         zip -qry ../bin-windows-mingw64-${{ env.buildver }}-artifact.zip bin-windows-mingw64-${{ env.buildver }}-artifact
         zip -qry ../bin-windows-ucrt64-${{ env.buildver }}-artifact.zip bin-windows-ucrt64-${{ env.buildver }}-artifact
         zip -qry ../wrappers-artifact.zip wrappers-artifact
+
+    - name: Generate release notes
+      run: |
+        COMMIT_MSG=$(git log -1 --pretty=format:'%s' ${COMMIT_SHORT} 2>/dev/null || echo "build update")
+        cat > release-notes.md << EOF
+        Nightly build of ${{ env.buildver }} with 3dfx and Mesa GL pass-through.
+
+        - **Commit**: ${COMMIT_SHORT} — ${COMMIT_MSG}
+        - **Build Date**: $(date +%Y-%m-%d)
+
+        Includes MINGW64 and UCRT64 Windows binaries plus guest wrapper ISO.
+        EOF
 
     - name: Clean previous nightly release assets
       env:
@@ -692,6 +717,7 @@ jobs:
       with:
         tag_name: nightly-${{ env.buildver }}
         name: Nightly ${{ env.buildver }}
+        body_path: release-notes.md
         prerelease: true
         make_latest: false
         generate_release_notes: false
