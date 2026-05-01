@@ -607,12 +607,12 @@ jobs:
         cd qemu-3dfx-arch/wrappers/3dfx
         mkdir build && cd build
         bash ../../../scripts/conf_wrapper
-        make && make clean
+        make GIT=${{ env.COMMIT_SHORT }}- && make clean
         echo "Compiling Mesa wrappers"
         cd ../../mesa
         mkdir build && cd build
         bash ../../../scripts/conf_wrapper
-        make all+ && make clean
+        make all+ SOFTGPU=${{ env.COMMIT_SHORT }} && make clean
         echo "Compiling Guest Openglide"
         cd ../../extra/openglide/
         dos2unix configure.ac Makefile.am
@@ -633,6 +633,8 @@ jobs:
         cp -rf ../mesa/build/*.{dll,exe} ./wrapgl/
         cp -rf ../extra/g2xwrap/*.dll g2xwrap/
         bash ../../scripts/sign_binary
+        # Override commit.txt with main repo commit (not submodule)
+        printf 'QEMU-3dfx-arch VMAddons ISO\n=================================================\nCommit ${{ env.COMMIT_SHORT }}\n\nrefer to readme.txt for more information\n' > commit.txt
         cp ../texts/readme.txt readme.txt
         cp ../../LICENSE license.txt
         cp -rf ../texts/readme_icd.txt ../mesa/registry/*.reg wrapgl/icd
