@@ -307,6 +307,21 @@ sed -i '' '/#include "SDL2\/SDL_opengl.h"/a\
 # so the timer never fires. Wait for wnd_ready with periodic BQL release.
 perl -i -pe '$_.="    while (!qatomic_read(&wnd_ready)) { bql_unlock(); g_usleep(1000); bql_lock(); }\n" if /mesa_prepare_window.*cwnd_mesagl;/' hw/mesa/mglcntx_sdlgl.c
 
+# Fix BQL deadlock in SDL/GL calls: SDL_GL_SwapWindow with VSync blocks for the
+# macOS display link callback (needs main thread), and SDL_GL_MakeCurrent may need
+# the main thread for Cocoa NSOpenGLContext management. Release BQL around these calls.
+# Skip macro continuation lines (ending with backslash).
+perl -i -pe 's/^(\s+)(SDL_GL_(?:SwapWindow\(window\)|MakeCurrent\(window, [^)]+\));)$/$1bql_unlock(); $2 bql_lock();/g unless /\\$/' hw/mesa/mglcntx_sdlgl.c
+
+# Fix BQL starvation during GL rendering: the FIFO processing loop in processFifo()
+# runs all pending GL commands in a tight while-loop holding BQL. During heavy rendering
+# (e.g., 3DMark via Wine Direct3D), the iothread starves for seconds and macOS shows
+# "Application Not Responding". Add a periodic BQL yield every 256 GL commands so the
+# main thread can process SDL/Cocoa events.
+perl -i -pe 's/^(\s+)(j \+= numData;)$/$1$2\n${1}if (!(++fifo_yield_cnt & 0xFF)) { bql_unlock(); g_usleep(1000); bql_lock(); }/ unless /\\$/' hw/mesa/mesapt_mm.c
+# Declare the static counter before the while loop in processFifo()
+perl -i -pe '$_ = "    static int fifo_yield_cnt;\n$_" if /^\s+while \(i < fifoptr\[0\]\)/' hw/mesa/mesapt_mm.c
+
 # ANGLE defines EGLNativeDisplayType as int on macOS, but eglGetPlatformDisplayEXT expects void*
 sed -i '' 's/eglGetPlatformDisplayEXT(platform, native, NULL)/eglGetPlatformDisplayEXT(platform, (void *)(intptr_t)native, NULL)/' ui/egl-helpers.c
 
