@@ -302,6 +302,11 @@ sed -i '' '/#include "SDL2\/SDL_opengl.h"/a\
 #endif
 ' hw/mesa/mglcntx_sdlgl.c
 
+# Fix BQL deadlock: mesa_prepare_window schedules a timer on the main thread to
+# create the SDL window, but the TCG thread holds the BQL in a tight polling loop
+# so the timer never fires. Wait for wnd_ready with periodic BQL release.
+perl -i -pe '$_.="    while (!qatomic_read(&wnd_ready)) { bql_unlock(); g_usleep(1000); bql_lock(); }\n" if /mesa_prepare_window.*cwnd_mesagl;/' hw/mesa/mglcntx_sdlgl.c
+
 # ANGLE defines EGLNativeDisplayType as int on macOS, but eglGetPlatformDisplayEXT expects void*
 sed -i '' 's/eglGetPlatformDisplayEXT(platform, native, NULL)/eglGetPlatformDisplayEXT(platform, (void *)(intptr_t)native, NULL)/' ui/egl-helpers.c
 
