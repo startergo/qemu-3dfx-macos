@@ -319,7 +319,7 @@ perl -i -pe '$_.="    while (!qatomic_read(&wnd_ready)) { bql_unlock(); g_usleep
 # macOS ANR during heavy context cycling (e.g., Wine Direct3D initialization).
 # The FIFO yield alone is insufficient — rapid context create/destroy sequences
 # with many MakeCurrent calls starve the iothread.
-perl -i -pe 's/^(\s+)(SDL_GL_(?:SwapWindow\(window\)|MakeCurrent\(window, [^)]+\)));)$/$1bql_unlock(); $2 bql_lock();/g unless /\\$/' hw/mesa/mglcntx_sdlgl.c
+perl -i -pe 's/^(\s+)(SDL_GL_(?:SwapWindow\(window\)|MakeCurrent\(window, [^)]+\));)$/$1bql_unlock(); $2 bql_lock();/g unless /\\$/' hw/mesa/mglcntx_sdlgl.c
 
 # Fix BQL starvation during GL rendering: the FIFO processing loop in processFifo()
 # runs all pending GL commands in a tight while-loop holding BQL. During heavy rendering
