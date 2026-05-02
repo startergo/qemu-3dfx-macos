@@ -323,10 +323,10 @@ perl -i -pe 's/^(\s+)(SDL_GL_(?:SwapWindow\(window\)|MakeCurrent\(window, [^)]+\
 
 # Fix BQL starvation during GL rendering: the FIFO processing loop in processFifo()
 # runs all pending GL commands in a tight while-loop holding BQL. During heavy rendering
-# (e.g., 3DMark via Wine Direct3D), the iothread starves for seconds and macOS shows
-# "Application Not Responding". Add a periodic BQL yield every 256 GL commands so the
-# main thread can process SDL/Cocoa events.
-perl -i -pe 's/^(\s+)(j \+= numData;)$/$1$2\n${1}if (!(++fifo_yield_cnt & 0xFF)) { bql_unlock(); g_usleep(1000); bql_lock(); }/ unless /\\$/' hw/mesa/mesapt_mm.c
+# (e.g., 3DMark via Wine Direct3D), the iothread starves and macOS shows
+# "Application Not Responding". Add a periodic BQL yield every 1024 GL commands.
+# Bare unlock/lock yields to waiting iothread without artificial sleep overhead.
+perl -i -pe 's/^(\s+)(j \+= numData;)$/$1$2\n${1}if (!(++fifo_yield_cnt & 0x3FF)) { bql_unlock(); bql_lock(); }/ unless /\\$/' hw/mesa/mesapt_mm.c
 # Declare the static counter before the while loop in processFifo()
 perl -i -pe '$_ = "    static int fifo_yield_cnt;\n$_" if /^\s+while \(i < fifoptr\[0\]\)/' hw/mesa/mesapt_mm.c
 
