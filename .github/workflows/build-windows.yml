@@ -682,6 +682,15 @@ jobs:
         echo "COMMIT_SHORT=${COMMIT_SHORT}" >> $GITHUB_ENV
         echo "Main repo commit: ${COMMIT_SHORT}"
 
+    - name: Calculate build number
+      run: |
+        git fetch --tags
+        EXISTING_TAGS=$(git tag --list "qemu-3dfx-windows-*" | wc -l | tr -d ' ')
+        BUILD_NUMBER=$EXISTING_TAGS
+        echo "Found ${EXISTING_TAGS} existing Windows release tags"
+        echo "Next build number: ${BUILD_NUMBER}"
+        echo "BUILD_NUMBER=${BUILD_NUMBER}" >> $GITHUB_ENV
+
     - name: Download build artifacts
       uses: actions/download-artifact@v4
       with:
@@ -699,7 +708,7 @@ jobs:
       run: |
         COMMIT_MSG=$(git log -1 --pretty=format:'%s' ${COMMIT_SHORT} 2>/dev/null || echo "build update")
         cat > release-notes.md << EOF
-        Nightly build of ${{ env.buildver }} with 3dfx and Mesa GL pass-through.
+        Windows build of ${{ env.buildver }} with 3dfx and Mesa GL pass-through.
 
         - **Commit**: ${COMMIT_SHORT} — ${COMMIT_MSG}
         - **Build Date**: $(date +%Y-%m-%d)
@@ -707,24 +716,14 @@ jobs:
         Includes MINGW64 and UCRT64 Windows binaries plus guest wrapper ISO.
         EOF
 
-    - name: Clean previous nightly release assets
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        TAG="nightly-${{ env.buildver }}"
-        # Delete existing release assets to avoid mixing old and new builds
-        gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null | while read -r name; do
-          echo "Removing old asset: $name"
-          gh release delete-asset "$TAG" "$name" --yes 2>/dev/null || true
-        done
-
-    - name: Publish rolling release
+    - name: Create GitHub Release
       uses: softprops/action-gh-release@v3
       with:
-        tag_name: nightly-${{ env.buildver }}
-        name: Nightly ${{ env.buildver }}
+        tag_name: qemu-3dfx-windows-${{ env.BUILD_NUMBER }}
+        name: QEMU 3dfx Windows Package ${{ env.BUILD_NUMBER }}
         body_path: release-notes.md
-        prerelease: true
+        draft: false
+        prerelease: false
         make_latest: false
         generate_release_notes: false
         files: |
