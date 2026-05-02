@@ -315,11 +315,10 @@ sed -i '' '/#include "SDL2\/SDL_opengl.h"/a\
 # so the timer never fires. Wait for wnd_ready with periodic BQL release.
 perl -i -pe '$_.="    while (!qatomic_read(&wnd_ready)) { bql_unlock(); g_usleep(1000); bql_lock(); }\n" if /mesa_prepare_window.*cwnd_mesagl;/' hw/mesa/mglcntx_sdlgl.c
 
-# Fix BQL deadlock in SDL/GL calls: SDL_GL_SwapWindow with VSync blocks for the
-# macOS display link callback (needs main thread), and SDL_GL_MakeCurrent may need
-# the main thread for Cocoa NSOpenGLContext management. Release BQL around these calls.
-# Skip macro continuation lines (ending with backslash).
-perl -i -pe 's/^(\s+)(SDL_GL_(?:SwapWindow\(window\)|MakeCurrent\(window, [^)]+\));)$/$1bql_unlock(); $2 bql_lock();/g unless /\\$/' hw/mesa/mglcntx_sdlgl.c
+# Note: SDL_GL calls (MakeCurrent, SwapWindow, DeleteContext) are thread-safe on macOS
+# via NSOpenGLContext and do NOT require the main thread. The original qemu-9.2.2-3dfx
+# build calls them from the vCPU thread without BQL release and works without XQuartz.
+# The FIFO yield in mesapt_mm.c is sufficient for ANR prevention.
 
 # Fix BQL starvation during GL rendering: the FIFO processing loop in processFifo()
 # runs all pending GL commands in a tight while-loop holding BQL. During heavy rendering
