@@ -292,6 +292,14 @@ cd "$QEMU_SRC_DIR/qemu-src"
 # mglcntx_linux.c uses GLX/X11 which crashes on macOS without XQuartz running
 sed -i '' "s/'mglcntx_linux.c'/'mglcntx_sdlgl.c'/" hw/mesa/meson.build
 
+# Add bql_lock/bql_unlock declarations for BQL deadlock fixes
+sed -i '' '/#include "qemu\/timer.h"/a\
+#include "qemu/main-loop.h"
+' hw/mesa/mglcntx_sdlgl.c
+sed -i '' '/#include "qemu\/osdep.h"/a\
+#include "qemu/main-loop.h"
+' hw/mesa/mesapt_mm.c
+
 # macOS OpenGL headers via SDL_opengl.h don't define NV_texture_rectangle constants
 sed -i '' '/#include "SDL2\/SDL_opengl.h"/a\
 #ifndef GL_TEXTURE_RECTANGLE_NV\
