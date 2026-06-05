@@ -109,3 +109,4 @@ site/
 # Patches that are temporary or generated
 *.patch.tmp
 *.diff.tmp
+output/

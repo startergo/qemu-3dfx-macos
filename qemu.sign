@@ -153,18 +153,7 @@ if [ ! -f $QEMU_ICO ]; then
     }
 fi
 
-echo "=== Signing executables and libraries ==="
-for i in $SIGN_EXE; do
-    if [ ! -f $i ]; then
-        echo "$i not found - skipping"
-        continue
-    fi
-    echo "Signing: $i"
-    xattr -c $i 2>/dev/null || echo "Warning: Could not clear attributes for $i"
-    codesign -s - -i $IDEN -f $i || echo "Warning: Could not sign $i"
-done
-
-echo "=== Adding icon and setting attributes ==="
+echo "=== Adding icon and setting attributes (before signing) ==="
 if [ -f $QEMU_ICO ] && [ -f $QEMU_EXE ] && which Rez >/dev/null 2>&1; then
     echo "Adding icon to $QEMU_EXE"
     Rez -append $QEMU_ICO -o $QEMU_EXE || echo "Warning: Could not add icon"
@@ -178,6 +167,18 @@ if [ -f $QEMU_EXE ] && which SetFile >/dev/null 2>&1; then
 else
     echo "Skipping file attributes (executable or SetFile not available)"
 fi
+
+echo "=== Signing executables and libraries ==="
+for i in $SIGN_EXE; do
+    if [ ! -f $i ]; then
+        echo "$i not found - skipping"
+        continue
+    fi
+    echo "Signing: $i"
+    xattr -c $i 2>/dev/null || echo "Warning: Could not clear attributes for $i"
+    codesign -s - -i $IDEN -f $i || echo "Warning: Could not sign $i"
+done
+
 echo "######################################################"
 echo "###                                                ###"
 echo "###              *** SUCCESS ***                   ###"
